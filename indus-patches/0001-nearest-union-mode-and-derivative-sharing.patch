@@ -1,0 +1,464 @@
+From 330cb8431552ae904b3370ee45ebf494771f1ec1 Mon Sep 17 00:00:00 2001
+From: tklimach <tklimach@local>
+Date: Thu, 28 May 2026 11:24:10 +0200
+Subject: [PATCH 1/4] Disable sharing all INDUS OP derivatives for internal
+ bias mode
+
+---
+ src/orderparameters/OrderParametersInterface.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/orderparameters/OrderParametersInterface.cpp b/src/orderparameters/OrderParametersInterface.cpp
+index 5793bd0..37a91c6 100644
+--- a/src/orderparameters/OrderParametersInterface.cpp
++++ b/src/orderparameters/OrderParametersInterface.cpp
+@@ -96,7 +96,7 @@ OrderParametersInterface::OrderParametersInterface(const ActionOptions& ao):
+ 		// Ensure that all derivatives are available on all ranks in case
+ 		// Ntilde is passed directly to another Action like RESTRAINT
+ 		// - TODO: Automatic detection?
+-		driver_ptr_->set_share_all_derivatives(true);
++		driver_ptr_->set_share_all_derivatives(false);
+ 	}
+ 	catch (const std::exception& e) {
+ 		std::cerr << "OrderParametersInterface: Unable to allocate memory for external "
+-- 
+2.47.3
+
+
+From a0daaee55b0565b6182364da4533b59049b7803b Mon Sep 17 00:00:00 2001
+From: tklimach <tklimach@local>
+Date: Thu, 28 May 2026 11:55:18 +0200
+Subject: [PATCH 2/4] Add configurable derivative sharing and nearest union
+ mode
+
+---
+ .../OrderParametersInterface.cpp              | 11 +++-
+ .../ProbeVolume_UnionSpheres.cpp              | 66 ++++++++++++++++++-
+ .../ProbeVolume_UnionSpheres.h                |  1 +
+ 3 files changed, 75 insertions(+), 3 deletions(-)
+
+diff --git a/src/orderparameters/OrderParametersInterface.cpp b/src/orderparameters/OrderParametersInterface.cpp
+index 37a91c6..1ac8e3d 100644
+--- a/src/orderparameters/OrderParametersInterface.cpp
++++ b/src/orderparameters/OrderParametersInterface.cpp
+@@ -24,6 +24,8 @@ void OrderParametersInterface::registerKeywords( Keywords& keys )
+ 	// Input keys
+   keys.add("compulsory", "INPUTFILE", "order parameters input file");
+   keys.add("optional",   "TOL",       "tolerance on the largest norm expected for a derivative (for debugging)");
++  keys.addFlag("NO_SHARE_ALL_DERIVATIVES", false,
++               "do not share all INDUS order-parameter derivatives across MPI ranks; use only when biasing via indus.ubias/internal INDUS bias");
+ 
+ 
+ 	//----- Output keys -----//
+@@ -81,6 +83,13 @@ OrderParametersInterface::OrderParametersInterface(const ActionOptions& ao):
+ 	// Tolerance on the maximum derivative expected
+ 	parse("TOL", max_norm_deriv_tol_);
+ 
++        // Optional performance mode:
++        // If true, do not share all INDUS order-parameter derivatives across MPI ranks.
++        // Use this only when biasing via indus.ubias/internal INDUS bias,
++        // not when directly biasing indus.ntilde with PLUMED RESTRAINT.
++        bool no_share_all_derivatives = false;
++        parseFlag("NO_SHARE_ALL_DERIVATIVES", no_share_all_derivatives);
++
+ 	// Check that everything on the input line has been read properly
+   checkRead();
+ 
+@@ -96,7 +105,7 @@ OrderParametersInterface::OrderParametersInterface(const ActionOptions& ao):
+ 		// Ensure that all derivatives are available on all ranks in case
+ 		// Ntilde is passed directly to another Action like RESTRAINT
+ 		// - TODO: Automatic detection?
+-		driver_ptr_->set_share_all_derivatives(false);
++		driver_ptr_->set_share_all_derivatives( !no_share_all_derivatives );
+ 	}
+ 	catch (const std::exception& e) {
+ 		std::cerr << "OrderParametersInterface: Unable to allocate memory for external "
+diff --git a/src/orderparameters/ProbeVolume_UnionSpheres.cpp b/src/orderparameters/ProbeVolume_UnionSpheres.cpp
+index cc69c0d..d64d347 100644
+--- a/src/orderparameters/ProbeVolume_UnionSpheres.cpp
++++ b/src/orderparameters/ProbeVolume_UnionSpheres.cpp
+@@ -31,6 +31,14 @@ ProbeVolume_UnionSpheres::ProbeVolume_UnionSpheres(ProbeVolume::ProbeVolumeInput
+ 
+         has_input_box_lengths_ = input_parameter_pack.readArray("box_lengths", KeyType::Optional, input_box_lengths_);
+ 
++        input_parameter_pack.readString("union_mode", KeyType::Optional, union_mode_);
++        if ( union_mode_ != "product" && union_mode_ != "nearest" ) {
++                std::stringstream ss;
++                ss << "ProbeVolume_UnionSpheres: unknown union_mode '" << union_mode_
++                   << "'. Valid options are 'product' and 'nearest'.";
++                throw std::runtime_error(ss.str());
++        }
++
+         input_parameter_pack.readString("centers_file", KeyType::Required, centers_file_);
+ 
+         readCentersFile(centers_file_);
+@@ -291,6 +299,60 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+ 
+         const std::vector<int>& candidates = cell_candidates_[cell_id];
+ 
++        const double r_search_sq = r_search_ * r_search_;
++
++        // Fast approximate/surface-distance mode:
++        // For a hard union of equal spheres, membership is exactly determined by
++        // the nearest center. Here we also define the smooth indicator from the
++        // nearest-center distance only. This is much faster than product mode.
++        if ( union_mode_ == "nearest" ) {
++                double min_dist_sq = r_search_sq;
++                bool found = false;
++                Real3 x_center_min;
++
++                for ( int center_index : candidates ) {
++                        const Real3& c = centers_[center_index];
++
++                        double dist_sq;
++                        Real3 x_center_i;
++                        simulation_box_.calculateDistance(c, x, x_center_i, dist_sq);
++
++                        if ( dist_sq <= min_dist_sq ) {
++                                min_dist_sq = dist_sq;
++                                x_center_min = x_center_i;
++                                found = true;
++                        }
++                }
++
++                if ( !found ) {
++                        h_v = 0.0;
++                        htilde_v = 0.0;
++                        for ( int d=0; d<DIM_; ++d ) dhtilde_v_dx[d] = 0.0;
++                        region = RegionEnum::Unimportant;
++                        return;
++                }
++
++                double dist = std::sqrt(min_dist_sq);
++                double dht_dr = 0.0;
++
++                switching_function_r_shell_.calculate(
++                        dist, need_derivatives_, h_v, htilde_v, dht_dr, region
++                );
++
++                if ( need_derivatives_ ) {
++                        if ( htilde_v > 0.0 && dist > 0.0 ) {
++                                double pref = dht_dr / dist;
++                                for ( int d=0; d<DIM_; ++d ) {
++                                        dhtilde_v_dx[d] = pref * x_center_min[d];
++                                }
++                        } else {
++                                for ( int d=0; d<DIM_; ++d ) dhtilde_v_dx[d] = 0.0;
++                        }
++                }
++
++                return;
++        }
++
+         double prod_not = 1.0;
+ 
+         std::vector<double> htilde_list;
+@@ -300,8 +362,6 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+         bool any_inside_nominal = false;
+         bool any_nonzero_smooth = false;
+ 
+-        const double r_search_sq = r_search_ * r_search_;
+-
+         for ( int center_index : candidates ) {
+                 const Real3& c = centers_[center_index];
+ 
+@@ -431,6 +491,7 @@ void ProbeVolume_UnionSpheres::printGridDebugSummary(const std::string& context)
+                   << "  grid_build_count = " << grid_build_count_ << "\\n"
+                   << "  box_lengths = {"
+                   << lengths[0] << ", " << lengths[1] << ", " << lengths[2] << "} nm\\n"
++                  << "  union_mode = " << union_mode_ << "\\n"
+                   << "  cell_size_requested = " << cell_size_requested_ << " nm\\n"
+                   << "  max_cells_per_dim = " << max_cells_per_dim_ << "\\n"
+                   << "  has_input_box_lengths = " << has_input_box_lengths_ << "\\n"
+@@ -485,6 +546,7 @@ std::string ProbeVolume_UnionSpheres::getInputSummary(const std::string& prepend
+            << prepend_string << "  n_centers = " << centers_.size() << "\n"
+            << prepend_string << "  r_min = " << r_min_ << " [nm]\n"
+            << prepend_string << "  r_max = " << r_max_ << " [nm]\n"
++           << prepend_string << "  union_mode = " << union_mode_ << "\n"
+            << prepend_string << "  Cell candidate grid\n"
+            << prepend_string << "    cell_size_requested = " << cell_size_requested_ << " [nm]\n"
+            << prepend_string << "    r_search = " << r_search_ << " [nm]\n"
+diff --git a/src/orderparameters/ProbeVolume_UnionSpheres.h b/src/orderparameters/ProbeVolume_UnionSpheres.h
+index 036c093..dff3365 100644
+--- a/src/orderparameters/ProbeVolume_UnionSpheres.h
++++ b/src/orderparameters/ProbeVolume_UnionSpheres.h
+@@ -69,6 +69,7 @@ class ProbeVolume_UnionSpheres : public ProbeVolume
+ 
+         std::vector<Real3> centers_;
+         std::string centers_file_;
++        std::string union_mode_ = "product";  // product or nearest
+ 
+         double r_min_;
+         double r_max_;
+-- 
+2.47.3
+
+
+From e7c4739a66d58d0fec03e58219312a146ba4ff81 Mon Sep 17 00:00:00 2001
+From: tklimach <tklimach@local>
+Date: Fri, 29 May 2026 10:00:44 +0200
+Subject: [PATCH 3/4] Add runtime counters for union_spheres diagnostics
+
+---
+ .../ProbeVolume_UnionSpheres.cpp              | 90 +++++++++++++++++++
+ .../ProbeVolume_UnionSpheres.h                | 11 +++
+ 2 files changed, 101 insertions(+)
+
+diff --git a/src/orderparameters/ProbeVolume_UnionSpheres.cpp b/src/orderparameters/ProbeVolume_UnionSpheres.cpp
+index d64d347..611e549 100644
+--- a/src/orderparameters/ProbeVolume_UnionSpheres.cpp
++++ b/src/orderparameters/ProbeVolume_UnionSpheres.cpp
+@@ -94,6 +94,13 @@ void ProbeVolume_UnionSpheres::setGeometry()
+ 
+ void ProbeVolume_UnionSpheres::update()
+ {
++        update_count_++;
++
++        if ( debug_runtime_ && runtime_debug_stride_ > 0 &&
++             update_count_ % runtime_debug_stride_ == 0 ) {
++                printRuntimeDebugAndReset("update");
++        }
++
+         // Keep switching function current. Do not blindly rebuild the grid every step.
+         switching_function_r_shell_.setBoundaries(r_min_, r_max_, width_shell_1_, width_shell_2_);
+         switching_function_r_shell_.setCoarseGrainingParameters(sigma_, alpha_c_);
+@@ -299,6 +306,17 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+ 
+         const std::vector<int>& candidates = cell_candidates_[cell_id];
+ 
++        cnt_calls_++;
++        cnt_candidate_sum_ += static_cast<long long>(candidates.size());
++        if ( candidates.empty() ) {
++                cnt_empty_cells_++;
++                h_v = 0.0;
++                htilde_v = 0.0;
++                for ( int d=0; d<DIM_; ++d ) dhtilde_v_dx[d] = 0.0;
++                region = RegionEnum::Unimportant;
++                return;
++        }
++
+         const double r_search_sq = r_search_ * r_search_;
+ 
+         // Fast approximate/surface-distance mode:
+@@ -313,6 +331,8 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+                 for ( int center_index : candidates ) {
+                         const Real3& c = centers_[center_index];
+ 
++                        cnt_distance_checks_++;
++
+                         double dist_sq;
+                         Real3 x_center_i;
+                         simulation_box_.calculateDistance(c, x, x_center_i, dist_sq);
+@@ -339,6 +359,11 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+                         dist, need_derivatives_, h_v, htilde_v, dht_dr, region
+                 );
+ 
++                if ( htilde_v > 0.0 ) {
++                        cnt_active_contribs_++;
++                        cnt_nonzero_waters_++;
++                }
++
+                 if ( need_derivatives_ ) {
+                         if ( htilde_v > 0.0 && dist > 0.0 ) {
+                                 double pref = dht_dr / dist;
+@@ -365,6 +390,8 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+         for ( int center_index : candidates ) {
+                 const Real3& c = centers_[center_index];
+ 
++                cnt_distance_checks_++;
++
+                 double dist_sq;
+                 Real3 x_center_i;
+ 
+@@ -392,6 +419,10 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+                 // This avoids expensive product/derivative work for waters
+                 // deep inside the hydration shell.
+                 if ( ht_j >= 1.0 - 1.0e-14 ) {
++                        cnt_saturated_fastpath_++;
++                        cnt_active_contribs_++;
++                        cnt_nonzero_waters_++;
++
+                         h_v = 1.0;
+                         htilde_v = 1.0;
+                         for ( int d=0; d<DIM_; ++d ) {
+@@ -402,6 +433,8 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+                 }
+ 
+                 if ( ht_j > 0.0 ) {
++                        cnt_active_contribs_++;
++
+                         any_nonzero_smooth = true;
+                         prod_not *= (1.0 - ht_j);
+ 
+@@ -429,6 +462,10 @@ void ProbeVolume_UnionSpheres::calculateIndicator(
+         h_v = any_inside_nominal ? 1.0 : 0.0;
+         htilde_v = any_nonzero_smooth ? (1.0 - prod_not) : 0.0;
+ 
++        if ( htilde_v > 0.0 ) {
++                cnt_nonzero_waters_++;
++        }
++
+         if ( need_derivatives_ && any_nonzero_smooth ) {
+                 for ( size_t j=0; j<htilde_list.size(); ++j ) {
+                         double weight = 1.0;
+@@ -512,6 +549,59 @@ void ProbeVolume_UnionSpheres::printGridDebugSummary(const std::string& context)
+                   << "  max_candidates_per_cell = " << max_candidates << "\\n";
+ }
+ 
++
++void ProbeVolume_UnionSpheres::printRuntimeDebugAndReset(const std::string& context) const
++{
++        if ( mpi_communicator_.get_rank() != 0 ) return;
++
++        double avg_candidates_per_call = 0.0;
++        double avg_distance_checks_per_call = 0.0;
++        double avg_active_contribs_per_call = 0.0;
++        double frac_empty_cells = 0.0;
++        double frac_nonzero_waters = 0.0;
++        double frac_saturated = 0.0;
++
++        if ( cnt_calls_ > 0 ) {
++                avg_candidates_per_call =
++                    static_cast<double>(cnt_candidate_sum_) / static_cast<double>(cnt_calls_);
++                avg_distance_checks_per_call =
++                    static_cast<double>(cnt_distance_checks_) / static_cast<double>(cnt_calls_);
++                avg_active_contribs_per_call =
++                    static_cast<double>(cnt_active_contribs_) / static_cast<double>(cnt_calls_);
++                frac_empty_cells =
++                    static_cast<double>(cnt_empty_cells_) / static_cast<double>(cnt_calls_);
++                frac_nonzero_waters =
++                    static_cast<double>(cnt_nonzero_waters_) / static_cast<double>(cnt_calls_);
++                frac_saturated =
++                    static_cast<double>(cnt_saturated_fastpath_) / static_cast<double>(cnt_calls_);
++        }
++
++        std::cerr << "INDUS union_spheres runtime debug [" << context << "]\n"
++                  << "  update_count = " << update_count_ << "\n"
++                  << "  union_mode = " << union_mode_ << "\n"
++                  << "  calls = " << cnt_calls_ << "\n"
++                  << "  empty_cell_calls = " << cnt_empty_cells_ << "\n"
++                  << "  frac_empty_cells = " << frac_empty_cells << "\n"
++                  << "  candidate_sum = " << cnt_candidate_sum_ << "\n"
++                  << "  avg_candidates_per_call = " << avg_candidates_per_call << "\n"
++                  << "  distance_checks = " << cnt_distance_checks_ << "\n"
++                  << "  avg_distance_checks_per_call = " << avg_distance_checks_per_call << "\n"
++                  << "  active_contribs = " << cnt_active_contribs_ << "\n"
++                  << "  avg_active_contribs_per_call = " << avg_active_contribs_per_call << "\n"
++                  << "  nonzero_waters = " << cnt_nonzero_waters_ << "\n"
++                  << "  frac_nonzero_waters = " << frac_nonzero_waters << "\n"
++                  << "  saturated_fastpath = " << cnt_saturated_fastpath_ << "\n"
++                  << "  frac_saturated_fastpath = " << frac_saturated << "\n";
++
++        cnt_calls_ = 0;
++        cnt_empty_cells_ = 0;
++        cnt_candidate_sum_ = 0;
++        cnt_distance_checks_ = 0;
++        cnt_active_contribs_ = 0;
++        cnt_saturated_fastpath_ = 0;
++        cnt_nonzero_waters_ = 0;
++}
++
+ std::string ProbeVolume_UnionSpheres::getInputSummary(const std::string& prepend_string) const
+ {
+         std::stringstream ss;
+diff --git a/src/orderparameters/ProbeVolume_UnionSpheres.h b/src/orderparameters/ProbeVolume_UnionSpheres.h
+index dff3365..be58e21 100644
+--- a/src/orderparameters/ProbeVolume_UnionSpheres.h
++++ b/src/orderparameters/ProbeVolume_UnionSpheres.h
+@@ -66,6 +66,7 @@ class ProbeVolume_UnionSpheres : public ProbeVolume
+         int  flattenCellIndex(const int ix, const int iy, const int iz) const;
+         void positionToCell(const Real3& x, int cell[3]) const;
+         void printGridDebugSummary(const std::string& context) const;
++        void printRuntimeDebugAndReset(const std::string& context) const;
+ 
+         std::vector<Real3> centers_;
+         std::string centers_file_;
+@@ -79,6 +80,16 @@ class ProbeVolume_UnionSpheres : public ProbeVolume
+         int    max_cells_per_dim_ = 256;    // safety cap
+         bool   debug_grid_ = true;          // print grid diagnostics on rank 0
+         int    grid_build_count_ = 0;
++        bool   debug_runtime_ = true;
++        int    runtime_debug_stride_ = 500;
++        mutable long long update_count_ = 0;
++        mutable long long cnt_calls_ = 0;
++        mutable long long cnt_empty_cells_ = 0;
++        mutable long long cnt_candidate_sum_ = 0;
++        mutable long long cnt_distance_checks_ = 0;
++        mutable long long cnt_active_contribs_ = 0;
++        mutable long long cnt_saturated_fastpath_ = 0;
++        mutable long long cnt_nonzero_waters_ = 0;
+         double r_search_ = 0.0;             // outer switching radius
+         double grid_r_search_ = -1.0;       // r_search used when grid was built
+         bool   grid_built_ = false;
+-- 
+2.47.3
+
+
+From 3d651354d2956012ce90a7d14283be76167a89ab Mon Sep 17 00:00:00 2001
+From: tklimach <tklimach@local>
+Date: Fri, 29 May 2026 10:08:37 +0200
+Subject: [PATCH 4/4] Skip zero INDUS derivatives when passing to PLUMED
+
+---
+ .../OrderParametersInterface.cpp              | 38 ++++++++++++++-----
+ 1 file changed, 28 insertions(+), 10 deletions(-)
+
+diff --git a/src/orderparameters/OrderParametersInterface.cpp b/src/orderparameters/OrderParametersInterface.cpp
+index 1ac8e3d..f53b11c 100644
+--- a/src/orderparameters/OrderParametersInterface.cpp
++++ b/src/orderparameters/OrderParametersInterface.cpp
+@@ -275,11 +275,20 @@ void OrderParametersInterface::calculate()
+ 	ntilde_ptr->set(ntilde_v_);
+ 	if ( ntilde_ptr->hasDerivatives() ) {
+ 		for ( int i=0; i<num_op_atoms; i++ ) {
+-			// PLUMED stores derivatives in a linear array
+-			int atom_offset = DIM_*i;
+-			for ( int d=0; d<DIM_; ++d ) {
+-				ntilde_ptr->addDerivative(atom_offset + d, derivatives_ntilde_v[i][d]);
+-			}
++		        const double dx = derivatives_ntilde_v[i][0];
++		        const double dy = derivatives_ntilde_v[i][1];
++		        const double dz = derivatives_ntilde_v[i][2];
++
++		        // Skip atoms with exactly zero derivative.
++		        // Most target waters are far from the probe volume.
++		        if ( dx == 0.0 && dy == 0.0 && dz == 0.0 ) {
++		                continue;
++		        }
++
++		        int atom_offset = DIM_*i;
++		        ntilde_ptr->addDerivative(atom_offset + 0, dx);
++		        ntilde_ptr->addDerivative(atom_offset + 1, dy);
++		        ntilde_ptr->addDerivative(atom_offset + 2, dz);
+ 		}
+ 		setBoxDerivatives(ntilde_ptr, box_derivatives_ntilde_v_);
+ 	}
+@@ -308,11 +317,20 @@ void OrderParametersInterface::calculate()
+ 	ubias_ptr->set(u_bias_);
+ 	if ( ubias_ptr->hasDerivatives() ) {
+ 		for ( int i=0; i<num_op_atoms; i++ ) {
+-			// PLUMED stores derivatives in a linear array
+-			int atom_offset = DIM_*i;
+-			for ( int d=0; d<DIM_; ++d ) {
+-				ubias_ptr->addDerivative(atom_offset + d, derivatives_u_bias_total[i][d]);
+-			}
++		        const double dx = derivatives_u_bias_total[i][0];
++		        const double dy = derivatives_u_bias_total[i][1];
++		        const double dz = derivatives_u_bias_total[i][2];
++
++		        // Skip atoms with exactly zero derivative.
++		        // Avoid hundreds of thousands of no-op PLUMED derivative insertions per step.
++		        if ( dx == 0.0 && dy == 0.0 && dz == 0.0 ) {
++		                continue;
++		        }
++
++		        int atom_offset = DIM_*i;
++		        ubias_ptr->addDerivative(atom_offset + 0, dx);
++		        ubias_ptr->addDerivative(atom_offset + 1, dy);
++		        ubias_ptr->addDerivative(atom_offset + 2, dz);
+ 		}
+ 		setBoxDerivatives(ubias_ptr, box_derivatives_u_bias_);
+ 	}
+-- 
+2.47.3
+
