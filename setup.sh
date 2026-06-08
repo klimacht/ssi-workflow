@@ -69,7 +69,7 @@ if [ -n "$SOFTWARE_ROOT" ]; then
   
   if [ ! -d "plumed-2.9.0" ]; then
     echo "Downloading PLUMED 2.9.0..."
-    wget -qNC --show-progress https://github.com/plumed/plumed2/releases/download/v2.9.0/plumed-src-2.9.0.tgz || true
+    wget -q --show-progress https://github.com/plumed/plumed2/releases/download/v2.9.0/plumed-src-2.9.0.tgz || true
     tar -xzf plumed-src-2.9.0.tgz
     
     echo "Applying INDUS union_spheres performance patch..."
