@@ -1,0 +1,18 @@
+; minim.mdp
+; Energy minimization after solvation/neutralization.
+
+integrator              = steep
+emtol                   = 1000.0
+emstep                  = 0.01
+nsteps                  = 50000
+
+cutoff-scheme           = Verlet
+nstlist                 = 20
+rlist                   = 1.0
+coulombtype             = PME
+rcoulomb                = 1.0
+rvdw                    = 1.0
+pbc                     = xyz
+
+constraints             = h-bonds
+constraint_algorithm    = lincs

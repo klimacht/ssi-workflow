@@ -1,0 +1,35 @@
+# Runtime outputs
+runs/
+logs/
+
+# User config (use workflow.env.example as template)
+config/workflow.env
+
+# Backups
+*.bak
+*.orig
+*~
+
+# Python
+__pycache__/
+*.pyc
+
+# Large data / trajectories
+*.npy
+*.xtc
+*.trr
+*.edr
+*.tpr
+*.cpt
+
+# Slurm logs
+*.out
+*.err
+
+# Archives
+*.zip
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
