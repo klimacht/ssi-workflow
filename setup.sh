@@ -19,8 +19,8 @@ SOFTWARE_ROOT="${2:-}"
 if [ -z "$SSI_ROOT" ]; then
   echo "Usage: $0 SSI_ROOT [SOFTWARE_ROOT]"
   echo
-  echo "  SSI_ROOT       absolute path where this repo lives and runs/ logs/ will be created"
-  echo "  SOFTWARE_ROOT  absolute path to GROMACS/PLUMED install (optional; edit config later if omitted)"
+  echo "  SSI_ROOT        absolute path where this repo lives and runs/ logs/ will be created"
+  echo "  SOFTWARE_ROOT   absolute path to GROMACS/PLUMED install (optional; edit config later if omitted)"
   echo
   echo "Example: $0 /ptmp/myuser/ssi_workflow /home/myuser/software"
   exit 1
@@ -60,8 +60,39 @@ fi
 # 3. Make scripts executable
 chmod +x bin/*.sh 2>/dev/null || true
 
+# 4. Prepare PLUMED with INDUS patch (if SOFTWARE_ROOT is provided)
+if [ -n "$SOFTWARE_ROOT" ]; then
+  echo
+  echo "=== Preparing PLUMED 2.9.0 with INDUS patch ==="
+  mkdir -p "${SOFTWARE_ROOT}/src"
+  cd "${SOFTWARE_ROOT}/src"
+  
+  if [ ! -d "plumed-2.9.0" ]; then
+    echo "Downloading PLUMED 2.9.0..."
+    wget -qNC --show-progress https://github.com/plumed/plumed2/releases/download/v2.9.0/plumed-src-2.9.0.tgz || true
+    tar -xzf plumed-src-2.9.0.tgz
+    
+    echo "Applying INDUS union_spheres performance patch..."
+    cd plumed-2.9.0
+    patch -p1 < "${SSI_ROOT}/indus-patches/0001-nearest-union-mode-and-derivative-sharing.patch"
+    
+    echo "Configuring PLUMED prefix..."
+    ./configure --prefix="${SOFTWARE_ROOT}/plumed" > configure_output.log 2>&1
+    echo "  -> Configuration complete (see ${SOFTWARE_ROOT}/src/plumed-2.9.0/configure_output.log)"
+  else
+    echo "plumed-2.9.0 source directory already exists in ${SOFTWARE_ROOT}/src. Skipping download/patch."
+  fi
+  cd "${SSI_ROOT}"
+fi
+
 echo
 echo "Done. Next steps:"
 echo "  1. Review config/workflow.env (module names, force field, phi list)"
-echo "  2. Apply INDUS patches and build PLUMED (see indus-patches/README.md)"
+if [ -n "$SOFTWARE_ROOT" ]; then
+  echo "  2. Load your compiler/MPI modules, then build PLUMED:"
+  echo "       cd ${SOFTWARE_ROOT}/src/plumed-2.9.0"
+  echo "       make -j 4 && make install"
+else
+  echo "  2. Apply INDUS patches and build PLUMED (see indus-patches/README.md)"
+fi
 echo "  3. Run a protein:  bash bin/ssi_run_full.sh 1DPX"
