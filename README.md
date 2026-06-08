@@ -9,72 +9,68 @@ and the original SSI approach of
 Given a protein structure (RCSB ID or local PDB), the pipeline runs the full
 chain automatically and produces a per-atom dewetting map:
 
-```
-PDB → preparation → equilibration → unbiased production
-→ biased SSI array (φ = 0–12 kJ/mol) → susceptibility → dewetting map
-```
+    PDB → preparation → equilibration → unbiased production
+    → biased SSI array (φ = 0–12 kJ/mol) → susceptibility → dewetting map
 
-## Requirements
+## Requirements & Upstream Source
 
-- GROMACS 2023.x patched with PLUMED 2.9.0 + INDUS (see `indus-patches/`)
+- **GROMACS 2023.x**: [Source Code / Downloads](https://manual.gromacs.org/documentation/2023/download.html)
+- **PLUMED 2.9.0**: [GitHub Release](https://github.com/plumed/plumed2/releases/tag/v2.9.0) (downloaded automatically by `setup.sh`)
+- **INDUS**: [Patel Lab GitHub Repository](https://github.com/patellab511/indus) (patched locally for performance, see `indus-patches/`)
 - Python ≥ 3.9 with `numpy` and `MDAnalysis`
 - Slurm workload manager
 
 ## Quick start
 
-```bash
-git clone <repo-url> ssi_workflow
-cd ssi_workflow
+    git clone <repo-url> ssi_workflow
+    cd ssi_workflow
 
-# Configure paths (replaces placeholders, creates config/workflow.env)
-./setup.sh /abs/path/to/ssi_workflow /abs/path/to/software
+    # Configure paths (replaces placeholders, creates config/workflow.env)
+    ./setup.sh /abs/path/to/ssi_workflow /abs/path/to/software
 
-# Edit config/workflow.env for your cluster (module names etc.)
+    # Edit config/workflow.env for your cluster (module names etc.)
 
-# Run a protein end-to-end (submits all stages with Slurm dependencies)
-bash bin/ssi_run_full.sh 1DPX
+    # Run a protein end-to-end (submits all stages with Slurm dependencies)
+    bash bin/ssi_run_full.sh 1DPX
 
-# Monitor
-watch -n 30 bash bin/monitor_pipeline.sh 1DPX
-```
+    # Monitor
+    watch -n 30 bash bin/monitor_pipeline.sh 1DPX
 
 ## Repository layout
 
-```
-ssi_workflow/
-├── README.md
-├── setup.sh                     configure placeholders + create config
-├── config/
-│   └── workflow.env.example     all tunable parameters (copy to workflow.env)
-├── slurm/
-│   ├── 00_prepare.slurm         download/clean PDB, pdb2gmx, solvate, ions, EM
-│   ├── 01_equilibrate.slurm     NVT + NPT equilibration
-│   ├── 02_unbiased.slurm        2 ns unbiased NPT production
-│   ├── 03_ssi_preflight.slurm   geometry + INDUS/PLUMED input setup, grompp check
-│   └── 04_ssi_production.slurm  biased array job (one task per φ)
-├── mdp/                         GROMACS .mdp parameter files
-├── src/
-│   ├── setup_ssi_case.py        per-φ TPR + INDUS input + PLUMED input
-│   ├── compute_n0.py            ⟨n_i⟩₀ from unbiased trajectory
-│   ├── compute_nS.py            ⟨n_i⟩_φ from a biased trajectory
-│   ├── compute_N_vs_phi.py      ⟨N⟩_φ and susceptibility, picks φ*
-│   └── combine_dewetting_map.py η_i = nS/n0 → .dat + .pdb (B-factor = η)
-├── bin/
-│   ├── ssi_lib.sh               shared helper functions (sourced by all stages)
-│   ├── ssi_run_full.sh          submit the whole pipeline with dependencies
-│   ├── ssi_rerun_chain.sh       rerun keeping a single chain (multimeric crystals)
-│   ├── run_analysis.sh          run all analysis steps after production
-│   ├── monitor_pipeline.sh      multi-protein stage + φ-window progress monitor
-│   ├── monitor_ssi_production.sh per-φ live progress table
-│   ├── ssi_doctor.sh            environment sanity checks
-│   ├── load_env.sh              source config + modules interactively
-│   └── ssi_submit_*.sh          submit individual stages
-├── docs/
-│   └── methods.md               concise methods text for a manuscript
-└── indus-patches/
+    ssi_workflow/
     ├── README.md
-    └── 0001-*.patch             INDUS modifications used here
-```
+    ├── setup.sh                     configure placeholders + create config
+    ├── config/
+    │   └── workflow.env.example     all tunable parameters (copy to workflow.env)
+    ├── slurm/
+    │   ├── 00_prepare.slurm         download/clean PDB, pdb2gmx, solvate, ions, EM
+    │   ├── 01_equilibrate.slurm     NVT + NPT equilibration
+    │   ├── 02_unbiased.slurm        2 ns unbiased NPT production
+    │   ├── 03_ssi_preflight.slurm   geometry + INDUS/PLUMED input setup, grompp check
+    │   └── 04_ssi_production.slurm  biased array job (one task per φ)
+    ├── mdp/                         GROMACS .mdp parameter files
+    ├── src/
+    │   ├── setup_ssi_case.py        per-φ TPR + INDUS input + PLUMED input
+    │   ├── compute_n0.py            ⟨n_i⟩₀ from unbiased trajectory
+    │   ├── compute_nS.py            ⟨n_i⟩_φ from a biased trajectory
+    │   ├── compute_N_vs_phi.py      ⟨N⟩_φ and susceptibility, picks φ*
+    │   └── combine_dewetting_map.py η_i = nS/n0 → .dat + .pdb (B-factor = η)
+    ├── bin/
+    │   ├── ssi_lib.sh               shared helper functions (sourced by all stages)
+    │   ├── ssi_run_full.sh          submit the whole pipeline with dependencies
+    │   ├── ssi_rerun_chain.sh       rerun keeping a single chain (multimeric crystals)
+    │   ├── run_analysis.sh          run all analysis steps after production
+    │   ├── monitor_pipeline.sh      multi-protein stage + φ-window progress monitor
+    │   ├── monitor_ssi_production.sh per-φ live progress table
+    │   ├── ssi_doctor.sh            environment sanity checks
+    │   ├── load_env.sh              source config + modules interactively
+    │   └── ssi_submit_*.sh          submit individual stages
+    ├── docs/
+    │   └── methods.md               concise methods text for a manuscript
+    └── indus-patches/
+        ├── README.md
+        └── 0001-*.patch             INDUS modifications used here
 
 ## Method summary
 
@@ -92,9 +88,7 @@ PLUMED to progressively dewet the protein surface. The susceptibility
 ⟨δN²⟩_φ peaks at the characteristic dewetting potential **φ\***. For each
 surface atom (⟨n_i⟩₀ > 4), the dewetting parameter
 
-```
-η_i = ⟨n_i⟩_φ* / ⟨n_i⟩₀
-```
+    η_i = ⟨n_i⟩_φ* / ⟨n_i⟩₀
 
 is written to the B-factor column of an output PDB (η = 0 hydrophobic →
 η = 1 hydrophilic), ready to color in VMD or ChimeraX.
@@ -116,11 +110,9 @@ hydrophobic; high phi*_i = holds water = hydrophilic. This uses all the data,
 is continuous rather than tied to the phi grid, and is less sensitive to noise
 in any single window.
 
-```bash
-# compute nS for ALL phi windows (needed once), then build the richer map
-bash bin/compute_all_nS.sh PHLP5
-python3 src/combine_dewetting_phistar_map.py --pdbid PHLP5
-```
+    # compute nS for ALL phi windows (needed once), then build the richer map
+    bash bin/compute_all_nS.sh PHLP5
+    python3 src/combine_dewetting_phistar_map.py --pdbid PHLP5
 
 Output: `runs/PDBID/dewetting/dewetting_phistar.pdb` (B-factor = phi*_i).
 
@@ -133,29 +125,23 @@ and skips the download.
 **Multimeric crystal structures** — many crystal structures contain several
 identical chains. To reproduce a monomer measurement, keep a single chain:
 
-```bash
-bash bin/ssi_rerun_chain.sh 3LDJ A     # keep only chain A
-```
+    bash bin/ssi_rerun_chain.sh 3LDJ A     # keep only chain A
 
 or pass the chain to prepare directly:
 
-```bash
-sbatch slurm/00_prepare.slurm 3LDJ A
-```
+    sbatch slurm/00_prepare.slurm 3LDJ A
 
 **Incomplete termini** — residues missing backbone atoms (N, CA, C) at the
 C-terminus are trimmed automatically during PDB cleaning.
 
 ## Coloring the map
 
-```tcl
-# VMD: red = hydrophobic (η→0), blue = hydrophilic (η→1)
-mol modselect 0 top "beta >= 0"
-mol modstyle  0 top VDW 1.0 12.0
-mol modcolor  0 top Beta
-color scale method RWB
-color scale midpoint 0.5
-```
+    # VMD: red = hydrophobic (η→0), blue = hydrophilic (η→1)
+    mol modselect 0 top "beta >= 0"
+    mol modstyle  0 top VDW 1.0 12.0
+    mol modcolor  0 top Beta
+    color scale method RWB
+    color scale midpoint 0.5
 
 ## INDUS modifications
 
