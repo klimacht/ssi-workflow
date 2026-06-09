@@ -47,9 +47,11 @@ def parse_args():
     ap.add_argument("--frac", type=float, default=0.5,
                     help="Hydration fraction defining the transition (default 0.5)")
     ap.add_argument("--center", action="store_true", default=True,
-                    help="Subtract global phi* so B-factor is delta around 0 (default on)")
+                    help="Subtract a reference so B-factor is delta around 0 (default on)")
     ap.add_argument("--no-center", dest="center", action="store_false",
                     help="Write raw phi*_i in kJ/mol instead of centered delta")
+    ap.add_argument("--center-mode", choices=["phistar_global","median"], default="phistar_global",
+                    help="Centering reference: phistar_global (susceptibility max) or median of phi*_i")
     return ap.parse_args()
 
 
@@ -154,12 +156,26 @@ def main():
                     break
 
     raw_phistar = phistar.copy()
-    if args.center and phi_star_global is not None:
-        phistar = phistar - phi_star_global
+    valid_init = phistar[surface & ~np.isnan(phistar)]
+    median_phistar = float(np.median(valid_init)) if len(valid_init) > 0 else None
+    if args.center:
+        if args.center_mode == "median" and median_phistar is not None:
+            center_value = median_phistar
+            center_label = f"median(phi*_i)={median_phistar:.3f}"
+        elif phi_star_global is not None:
+            center_value = phi_star_global
+            center_label = f"phi*_global={phi_star_global:.3f}"
+        else:
+            center_value = None; center_label = "none"
+        if center_value is not None:
+            phistar = phistar - center_value
 
     valid = phistar[surface & ~np.isnan(phistar)]
 
-    mode = "delta (phi*_i - phi*_global)" if (args.center and phi_star_global is not None) else "raw phi*_i"
+    if args.center and (phi_star_global is not None or median_phistar is not None):
+        mode = f"delta (phi*_i - {center_label})"
+    else:
+        mode = "raw phi*_i"
     print("=== Per-atom dewetting transition map ===")
     print(f"pdbid                 {pdbid}")
     print(f"phi windows used      {[float(x) for x in phi_vals]}")
@@ -240,8 +256,8 @@ def main():
         fh.write("END\n")
     print(f"Wrote {pdb}")
 
-    if args.center and phi_star_global is not None:
-        print(f"\nB-factor = phi*_i - phi*_global (kJ/mol), centered on 0:")
+    if args.center and (phi_star_global is not None or median_phistar is not None):
+        print(f"\nB-factor = {center_label} (kJ/mol), centered on 0:")
         print(f"  negative (RED)   = dewets before the collective = more hydrophobic")
         print(f"  ~0     (WHITE)   = behaves like the protein average")
         print(f"  positive (BLUE)  = holds water longer = more hydrophilic")
