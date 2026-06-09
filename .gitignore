@@ -33,3 +33,4 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+examples/figures/_raw/
