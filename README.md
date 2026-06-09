@@ -161,24 +161,6 @@ Color scale: **red = hydrophobic**, **blue = hydrophilic**. The η-map runs
 0–1 (no hydration → full hydration), the φ\*_i map is symmetric around 0 in
 kJ/mol (negative = dewets earlier than the protein average).
 
-## Gallery
-
-Side-by-side comparison of the two map types for selected proteins.
-The single-window η-map (left) shows hydration at the single bias φ\*; the
-per-atom φ\*_i map (right) integrates information from all 13 biased
-simulations into one continuous scalar per atom, centered on the protein
-median. See [`examples/figures/`](examples/figures/) for all proteins and views.
-
-| Protein | single-window η at φ\* | per-atom φ\*_i (centered) |
-|---------|------------------------|-----------------------------|
-| **PhLP5** — strongest patch contrast (4.78 kJ/mol) | ![](examples/figures/PHLP5_eta_front.png) | ![](examples/figures/PHLP5_phistar_front.png) |
-| **1HRC** (cytochrome C) — hydrophilic on average but sharp hotspots | ![](examples/figures/1HRC_eta_front.png) | ![](examples/figures/1HRC_phistar_front.png) |
-| **4IBA** (β-lactoglobulin) — most hydrophobic overall, homogeneous | ![](examples/figures/4IBA_eta_front.png) | ![](examples/figures/4IBA_phistar_front.png) |
-
-Color scale: **red = hydrophobic**, **blue = hydrophilic**. The η-map runs
-0–1 (no hydration → full hydration), the φ\*_i map is symmetric around 0 in
-kJ/mol (negative = dewets earlier than the protein average).
-
 ## Handling special cases
 
 **Custom (non-RCSB) structures** — place the file at

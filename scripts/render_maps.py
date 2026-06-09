@@ -98,7 +98,7 @@ def main():
         eta_pdb = find_eta_pdb(protein)
         if eta_pdb:
             print(f"  eta:    {os.path.basename(eta_pdb)}")
-            render_map(eta_pdb, f"{protein}_eta", ETA_RANGE, reverse=True)
+            render_map(eta_pdb, f"{protein}_eta", ETA_RANGE, reverse=False)
         else:
             print("  eta:    (no single-window map found)")
 
