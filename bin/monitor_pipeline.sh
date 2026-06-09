@@ -66,6 +66,16 @@ job_state() {
   echo "GONE"
 }
 
+
+# helper: GROMACS ETA from production stderr "will finish ..." line
+gmx_eta() {
+  local jid="$1"
+  local err
+  err=$(ls "${ROOT}/logs/04_ssi_production.${jid}".err 2>/dev/null | head -1)
+  [ -f "$err" ] || return
+  tac "$err" 2>/dev/null | grep -m1 "will finish" | sed 's/.*will finish //'
+}
+
 NOW=$(date '+%H:%M:%S')
 echo "=========================================================================="
 echo "  SSI Pipeline Monitor  |  ${NOW}  |  ${#PDBIDS[@]} protein(s)"
@@ -85,6 +95,8 @@ for PDBID in "${PDBIDS[@]}"; do
     stage="${stages[$si]}"
     lbl="${labels[$si]}"
     jf="${RUN_DIR}/${stage}.jobid"
+    # also accept full_analysis.jobid for the "analysis" stage
+    if [ "$stage" = "analysis" ] && [ ! -f "$jf" ] && [ -f "${RUN_DIR}/full_analysis.jobid" ]; then jf="${RUN_DIR}/full_analysis.jobid"; fi
 
     if [ ! -f "$jf" ]; then
       line+=$(printf " %-7s:%-9s" "$lbl" "-")
@@ -154,6 +166,8 @@ for PDBID in "${PDBIDS[@]}"; do
   for si in "${!stages[@]}"; do
     stage="${stages[$si]}"
     jf="${RUN_DIR}/${stage}.jobid"
+    # also accept full_analysis.jobid for the "analysis" stage
+    if [ "$stage" = "analysis" ] && [ ! -f "$jf" ] && [ -f "${RUN_DIR}/full_analysis.jobid" ]; then jf="${RUN_DIR}/full_analysis.jobid"; fi
     [ -f "$jf" ] || continue
     jid=$(cat "$jf")
     st=$(job_state "$jid")
@@ -185,7 +199,15 @@ any_active=0
 while IFS='|' read -r jid name state time endt; do
   [ -z "$jid" ] && continue
   any_active=1
-  printf "  %-12s %-12s %-9s %-8s end:%s\n" "$jid" "$name" "$state" "$time" "$endt"
+  eta=""
+  if [[ "$name" == *prod* ]] && [ "$state" = "RUNNING" ]; then
+    eta=$(gmx_eta "$jid" 2>/dev/null)
+  fi
+  if [ -n "$eta" ]; then
+    printf "  %-12s %-12s %-9s %-8s ETA:%s  (wall<=%s)\n" "$jid" "$name" "$state" "$time" "$eta" "$endt"
+  else
+    printf "  %-12s %-12s %-9s %-8s wall<=:%s\n" "$jid" "$name" "$state" "$time" "$endt"
+  fi
 done < <(squeue -u "$USER" -h -o "%i|%j|%T|%M|%e" 2>/dev/null | grep -iE "ssi|prep|equil|unbias|prod|anal")
 [ "$any_active" -eq 0 ] && echo "  (none)"
 
