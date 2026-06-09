@@ -9,7 +9,9 @@ if [ ${#PROTEINS[@]} -eq 0 ]; then
   PROTEINS=(1DPX 1HRC 3LDJ 1FS3 1RBB 4IBA PHLP5)
 fi
 
+
 OUT="${ROOT}/analysis_comparison.tsv"
+module load python-waterboa/2025.06
 python3 - "$OUT" "${PROTEINS[@]}" << 'PYEOF'
 import sys, csv
 from pathlib import Path
@@ -44,7 +46,7 @@ for pdbid in proteins:
             for line in f:
                 if line.startswith("#"): continue
                 p = line.split()
-                if len(p) > 10 and p[10] == "1" and p[8] != "nan":
+                if len(p) > 9 and p[9] == "1" and p[8] != "nan":
                     vals.append(float(p[8]))
         if vals:
             v = np.array(vals); n_surf = len(v)
