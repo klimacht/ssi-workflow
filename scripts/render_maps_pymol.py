@@ -56,12 +56,17 @@ def render_pymol(pdb_path, b_range, is_phistar):
     cmd.load(pdb_path, "prot")
     if is_phistar:
         cmd.hide("everything", "prot")
-        cmd.show("surface", "prot and b > -7")
+        # Show surface for surface atoms (b > -10) excluding buried sentinel (~-9)
+        # Atoms with no half-dewetting crossing have sentinel ~-7
+        cmd.show("surface", "prot and b > -10")
     else:
         cmd.hide("everything", "prot")
         cmd.show("surface", "prot and b > -0.5")
     lo, hi = b_range
     cmd.spectrum("b", "red_white_blue", "prot", minimum=lo, maximum=hi)
+    if is_phistar:
+        # Atoms without a half-dewetting crossing: grey (sentinel between -8 and -6)
+        cmd.color("grey70", "prot and b > -8 and b < -5")
     cmd.bg_color("white")
     cmd.set("ray_shadows", 0)
     cmd.set("ray_opaque_background", 0)

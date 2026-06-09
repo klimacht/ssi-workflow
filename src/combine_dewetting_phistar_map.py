@@ -296,18 +296,18 @@ def main():
     # Atoms that never cross the threshold are the most hydrophilic; fill them
     # with the maximum observed surface value so they color at that end.
     if len(valid) > 0:
-        fill_hydrophilic = float(valid.max())
         buried_sentinel = float(np.floor(valid.min() - 5.0))
+        nan_sentinel = float(np.floor(valid.min() - 3.0))  # between buried and data
     else:
-        fill_hydrophilic = 0.0
         buried_sentinel = -99.0
+        nan_sentinel = -88.0
 
     pdb = out_dir / "dewetting_phistar.pdb"
     with open(pdb, "w") as fh:
         for i, atom in enumerate(protein_heavy):
             x, y, z = atom.position
             if surface[i]:
-                b = phistar[i] if not np.isnan(phistar[i]) else fill_hydrophilic
+                b = phistar[i] if not np.isnan(phistar[i]) else nan_sentinel
             else:
                 b = buried_sentinel
             fh.write(
@@ -328,7 +328,8 @@ def main():
         if len(valid) > 0:
             m = max(abs(valid.min()), abs(valid.max()))
             print(f"  symmetric color range: -{m:.1f} to +{m:.1f}")
-            print(f"  buried-atom sentinel:  {buried_sentinel:.1f} (hide with 'beta > {buried_sentinel+1:.0f}')")
+            print(f"  nan-atom sentinel:     {nan_sentinel:.1f}  (atoms with no half-dewetting crossing)")
+        print(f"  buried-atom sentinel:  {buried_sentinel:.1f} (hide with 'beta > {buried_sentinel+1:.0f}')")
         print(f"\nVMD:  color scale method BWR   (B=neg→blue? use RWB if reversed)")
         print(f"      mol modselect 0 top \"beta > {buried_sentinel+1:.0f}\"")
         print(f"      mol modcolor 0 top Beta ; mol scaleminmax top 0 -{m:.1f} {m:.1f}")
