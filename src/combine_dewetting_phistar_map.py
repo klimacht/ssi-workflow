@@ -50,8 +50,8 @@ def parse_args():
                     help="Subtract a reference so B-factor is delta around 0 (default on)")
     ap.add_argument("--no-center", dest="center", action="store_false",
                     help="Write raw phi*_i in kJ/mol instead of centered delta")
-    ap.add_argument("--center-mode", choices=["phistar_global","median"], default="phistar_global",
-                    help="Centering reference: phistar_global (susceptibility max) or median of phi*_i")
+    ap.add_argument("--center-mode", choices=["phistar_global","median","global_half"], default="global_half",
+                    help="Centering reference: phistar_global (susceptibility max), median of phi*_i, or global_half (phi where <N> = N0/2)")
     return ap.parse_args()
 
 
@@ -61,31 +61,69 @@ def phi_to_dirname(phi):
     return f"phi_{whole:02d}p{frac}"
 
 
+def _cubic_solve_eq(y0, y1, y2, y3, target, max_iter=20, tol=1e-9):
+    """
+    Find u in [0,1] where the cubic through (0,y0),(1,y1),(2,y2),(3,y3)
+    equals target, parameterized with u = 0 at y1, u = 1 at y2.
+    Coefficients for equidistant 4-point cubic (centered between y1,y2):
+        a = y1,
+        b = (-2y0 - 3y1 + 6y2 - y3) / 6
+        c = (y0 - 2y1 + y2) / 2
+        d = (-y0 + 3y1 - 3y2 + y3) / 6
+    Returns u or None if it does not converge inside [0,1].
+    """
+    a = y1
+    b = (-2*y0 - 3*y1 + 6*y2 - y3) / 6.0
+    c = (y0 - 2*y1 + y2) / 2.0
+    d = (-y0 + 3*y1 - 3*y2 + y3) / 6.0
+    u = 0.5
+    for _ in range(max_iter):
+        f = a + b*u + c*u*u + d*u*u*u - target
+        fp = b + 2*c*u + 3*d*u*u
+        if abs(fp) < 1e-12: return None
+        u_new = u - f / fp
+        if abs(f) < tol: break
+        u = u_new
+    if -0.001 <= u <= 1.001:
+        return max(0.0, min(1.0, u))
+    return None
+
+
 def interp_phistar(phis, n_curve, n0, frac):
     """
-    Find the phi at which n_curve crosses frac*n0, by linear interpolation.
+    Find phi at which n_curve crosses frac*n0.
 
-    phis    : 1D array of phi values (sorted ascending)
-    n_curve : 1D array of <n_i>_phi, same length
-    n0      : unbiased hydration for this atom
-    frac    : target fraction (0.5 = half-dehydration)
-
-    Returns phi*_i, or np.nan if the curve never crosses the target
-    (e.g. atom already below target at phi=0, or never drops that far).
+    Uses cubic interpolation through 4 surrounding points (2 left, 2 right of
+    the crossing interval) when available; falls back to linear interpolation
+    at the boundaries or if the cubic doesn't converge inside the interval.
     """
     target = frac * n0
-    # Curve should be (mostly) decreasing. Find first window where it drops
-    # from >= target to < target.
+    # Find first crossing interval [k, k+1]
+    cross = None
     for k in range(len(phis) - 1):
         a, b = n_curve[k], n_curve[k + 1]
         if a >= target >= b and a != b:
-            # linear interpolation between phi[k] and phi[k+1]
-            t = (a - target) / (a - b)
-            return phis[k] + t * (phis[k + 1] - phis[k])
-    # No clean crossing
-    if n_curve[0] < target:
-        return phis[0]            # already dehydrated at phi=0
-    return np.nan                 # never reaches target within phi range
+            cross = k
+            break
+    if cross is None:
+        if n_curve[0] < target:
+            return phis[0]
+        return np.nan
+
+    k = cross
+    dphi = phis[k + 1] - phis[k]
+
+    # Try cubic if we have two neighbours on each side
+    if k >= 1 and k + 2 < len(phis):
+        u = _cubic_solve_eq(n_curve[k-1], n_curve[k],
+                            n_curve[k+1], n_curve[k+2], target)
+        if u is not None:
+            return phis[k] + u * dphi
+
+    # Fallback: linear between (phis[k], n_curve[k]) and (phis[k+1], n_curve[k+1])
+    a, b = n_curve[k], n_curve[k + 1]
+    t = (a - target) / (a - b)
+    return phis[k] + t * dphi
 
 
 def main():
@@ -155,6 +193,24 @@ def main():
                     phi_star_global = float(_row["phi"])
                     break
 
+    # Compute global_half: the phi at which <N> drops to N0/2,
+    # by cubic interpolation through the four nearest <N>(phi) points.
+    global_half = None
+    if tsv.is_file():
+        phis_global, N_global = [], []
+        import csv as _csv2
+        with open(tsv) as _f:
+            for _row in _csv2.DictReader(_f, delimiter="\t"):
+                phis_global.append(float(_row["phi"]))
+                N_global.append(float(_row["N_mean"]))
+        if phis_global and N_global:
+            phis_g = np.array(phis_global)
+            N_g = np.array(N_global)
+            N0_global = N_g[0]
+            global_half = interp_phistar(phis_g, N_g, N0_global, 0.5)
+            if np.isnan(global_half):
+                global_half = None
+
     raw_phistar = phistar.copy()
     valid_init = phistar[surface & ~np.isnan(phistar)]
     median_phistar = float(np.median(valid_init)) if len(valid_init) > 0 else None
@@ -162,6 +218,9 @@ def main():
         if args.center_mode == "median" and median_phistar is not None:
             center_value = median_phistar
             center_label = f"median(phi*_i)={median_phistar:.3f}"
+        elif args.center_mode == "global_half" and global_half is not None:
+            center_value = global_half
+            center_label = f"phi*_m={global_half:.3f}"
         elif phi_star_global is not None:
             center_value = phi_star_global
             center_label = f"phi*_global={phi_star_global:.3f}"
@@ -169,6 +228,11 @@ def main():
             center_value = None; center_label = "none"
         if center_value is not None:
             phistar = phistar - center_value
+            # Write sidecar with the centering metadata
+            with open(out_dir / "dewetting_phistar.center", "w") as _fh:
+                _fh.write(f"center_mode\t{args.center_mode}\n")
+                _fh.write(f"center_value\t{center_value}\n")
+                _fh.write(f"center_label\t{center_label}\n")
 
     valid = phistar[surface & ~np.isnan(phistar)]
 
@@ -256,7 +320,7 @@ def main():
         fh.write("END\n")
     print(f"Wrote {pdb}")
 
-    if args.center and (phi_star_global is not None or median_phistar is not None):
+    if args.center and phi_star_global is not None:
         print(f"\nB-factor = {center_label} (kJ/mol), centered on 0:")
         print(f"  negative (RED)   = dewets before the collective = more hydrophobic")
         print(f"  ~0     (WHITE)   = behaves like the protein average")
