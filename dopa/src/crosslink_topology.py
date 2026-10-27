@@ -64,7 +64,7 @@ def cmd_prepare(args):
         if s.startswith("["):
             sec = s.strip("[] ").lower()
             continue
-        if mol == 1 and sec == "atoms" and s:
+        if mol == 1 and sec == "atoms" and s and not s.startswith("#"):
             f = s.split()
             atoms[int(f[0])] = (f[1], int(f[2]), f[3], f[4])
     by_name = {(v[1], v[3]): nr for nr, v in atoms.items()}
@@ -82,7 +82,7 @@ def cmd_prepare(args):
             mol += 1
         if s.startswith("["):
             sec = s.strip("[] ").lower()
-        elif mol == 1 and s and sec in ("bonds", "angles", "dihedrals"):
+        elif mol == 1 and s and not s.startswith("#") and sec in ("bonds", "angles", "dihedrals"):
             f = s.split()
             na_ = {"bonds": 2, "angles": 3, "dihedrals": 4}[sec]
             idx, func = [int(x) for x in f[:na_]], int(f[na_])
@@ -130,7 +130,7 @@ def cmd_prepare(args):
             mol += 1
         if s.startswith("["):
             sec = s.strip("[] ").lower()
-        elif mol == 1 and sec == "dihedrals" and s:
+        elif mol == 1 and sec == "dihedrals" and s and not s.startswith("#"):
             grow_dih_end = i + 1
     grow[grow_dih_end:grow_dih_end] = [y for x in imp for y in x[1]]
 
@@ -157,7 +157,7 @@ def cmd_prepare(args):
                 continue
             kept += 1
         out.append(l)
-    Path("posre_grow.itp").write_text("\n".join(out))
+    Path(args.top).with_name("posre_grow.itp").write_text("\n".join(out))
 
     Path(args.top).with_name("topol_nolinkimp.top").write_text("\n".join(top_lines))
     Path(args.top).write_text("\n".join(final))
