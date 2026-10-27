@@ -135,8 +135,24 @@ ff03 recipe and would be inconsistent with ff99SB.
 The point density matters: the restraint weights are calibrated for
 1 point/Å². A first fit at 6 points/Å² weakened the restraints and let the
 buried carbons drift (Tyr check: max |Δq| = 0.20 e, e.g. CB −0.20 instead of
-−0.02); at 1 point/Å² with the Tyr ring symmetry the same QM data give
-max |Δq| ≈ 0.06 e. The hydroxyl charges of DOPA hardly depend on it.
+−0.02). At 1 point/Å² with the Tyr ring symmetry the Tyr refit agrees with
+ff99SB within 0.08 e except CB (−0.15 instead of −0.02): a systematic
+difference between our protocol and the original ff94 fit (whose exact
+conformers are not documented).
+
+**Tyr-referenced charges (used).** The wild type keeps the ff99SB Tyr
+charges. If DOPA got its directly fitted charges, part of the WT–DOPA
+difference (e.g. at CB) would come from the derivation, not from the extra
+OH. Therefore the force field gets
+
+    q_DAH(atom) = q_ff99SB,TYR(atom) + [q_fit,DAH(atom) − q_fit,TYR(atom)]
+
+for all atoms both residues share, the fitted charges for the new OE2/HOE2,
+and the small leftover (Tyr-fit minus ff99SB charge of the replaced HE2,
+~0.01 e) on CE2. Both Tyr and DOPA are fitted with the identical protocol, so
+its systematic error cancels. `resp_report.txt` lists direct and
+Tyr-referenced charges side by side; `resp_dopa.py fit --scheme direct` writes
+the direct fit instead.
 
 DOPA is modelled in its reduced, neutral catechol form (pKa ≈ 9–10,
 Lee et al. 2011).

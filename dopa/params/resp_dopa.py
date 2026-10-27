@@ -13,6 +13,9 @@ Recipe (Cornell et al. 1995; Cieplak et al. 1995; Bayly et al. 1993):
     b: 4-OH donates) in both backbone conformations -> 4 conformers
   * Tyr is fitted with the same protocol as a check against ff99SB
     (symmetric ring atoms equivalenced, as in ff94)
+  * DAH charges written to the force field (default): Tyr-referenced,
+    ff99SB Tyr + (DAH fit - Tyr fit), so that the residual difference of our
+    protocol to the original ff94 fit cancels between WT and DOPA
 
 Subcommands:
   build   write start geometries (xyz) + atom lists (json), for inspection
@@ -492,18 +495,17 @@ def cmd_fit(args):
     report = [f"HF/6-31G* (Cartesian d), MK shells {SHELLS} x vdW, {DENSITY} points/A^2, "
               "two-stage RESP a = 0.0005/0.001, b = 0.1", ""]
 
-    results = {}
+    fitted = {}
     for resname in ("TYR", "DAH"):
         names = [k for k, v in meta.items() if v["resname"] == resname]
         atoms = [tuple(a) for a in meta[names[0]]["atoms"]]
         confs = load_confs(meta, names)
-        charges, err = two_stage_resp(atoms, confs, SYMMETRY[resname])
-        res_names = [a[1] for a in atoms if a[0] == "RES"]
-        results[resname] = round_neutral(charges, res_names)
+        fitted[resname], err = two_stage_resp(atoms, confs, SYMMETRY[resname])
         report.append(f"== {resname}: conformers {', '.join(names)}")
         report += [f"   RRMS {nm}: {e:.4f}  ({len(c[1])} points)" for nm, e, c in zip(names, err, confs)]
 
-    tyr = results["TYR"]
+    dah_names = [n for n, _ in DAH_TYPES]
+    tyr = round_neutral(fitted["TYR"], list(TYR_FF99SB))
     report.append("\n== Check: TYR refit vs ff99SB")
     report.append(f"   {'atom':5s} {'fit':>8s} {'ff99SB':>8s} {'diff':>8s}")
     for k, ref in TYR_FF99SB.items():
@@ -511,20 +513,34 @@ def cmd_fit(args):
     dev = max(abs(tyr[k] - v) for k, v in TYR_FF99SB.items())
     report.append(f"   max |diff| = {dev:.4f}")
 
-    dah = results["DAH"]
-    report.append("\n== DAH charges (residue sum = {:.4f})".format(sum(dah.values())))
+    # Tyr-referenced DAH charges: ff99SB Tyr + (DAH fit - Tyr fit) for the atoms
+    # both residues share; OE2/HOE2 from the DAH fit. The protocol difference to
+    # ff94 cancels, so WT (ff99SB Tyr) and DAH differ only by the modification.
+    # The leftover (Tyr-fit minus ff99SB charge of the replaced HE2) goes to CE2.
+    direct = round_neutral(fitted["DAH"], dah_names)
+    referenced = {k: (TYR_FF99SB[k] + fitted["DAH"][k] - fitted["TYR"][k]) if k in TYR_FF99SB
+                  else fitted["DAH"][k] for k in dah_names}
+    referenced["CE2"] -= sum(referenced.values())
+    referenced = round_neutral(referenced, dah_names, sink="CE2")
+    dah = referenced if args.scheme == "referenced" else direct
+
+    report.append(f"\n== DAH charges, scheme '{args.scheme}' is written to dah.rtp "
+                  f"(residue sum = {sum(dah.values()):.4f})")
+    report.append(f"   {'atom':5s} {'type':4s} {'direct':>8s} {'tyr-ref':>8s} {'TYR ff':>8s}")
     for name, atype in DAH_TYPES:
         ref = TYR_FF99SB.get(name)
-        cmp = f"   (TYR {ref:8.4f})" if ref is not None else ""
-        report.append(f"   {name:5s} {atype:3s} {dah[name]:8.4f}{cmp}")
+        refs = f"{ref:8.4f}" if ref is not None else f"{'-':>8s}"
+        report.append(f"   {name:5s} {atype:4s} {direct[name]:8.4f} {referenced[name]:8.4f} {refs}")
 
     text = "\n".join(report)
     print(text)
     (out / "resp_report.txt").write_text(text + "\n")
     (out / "dah_charges.json").write_text(json.dumps(dah, indent=1))
+    (out / "dah_charges_direct.json").write_text(json.dumps(direct, indent=1))
+    (out / "dah_charges_tyr_referenced.json").write_text(json.dumps(referenced, indent=1))
     (out / "tyr_refit_charges.json").write_text(json.dumps(tyr, indent=1))
     write_rtp_hdb(dah, args.ffdir)
-    print(f"\nwrote {out}/resp_report.txt, dah_charges.json and {args.ffdir}/dah.rtp, dah.hdb")
+    print(f"\nwrote {out}/resp_report.txt, dah_charges*.json and {args.ffdir}/dah.rtp, dah.hdb")
 
 
 def main():
@@ -542,6 +558,8 @@ def main():
     p.add_argument("--workdir", required=True, help="directory with one subdirectory per conformer")
     p.add_argument("--outdir", required=True)
     p.add_argument("--ffdir", required=True)
+    p.add_argument("--scheme", choices=("referenced", "direct"), default="referenced",
+                   help="DAH charges written to dah.rtp: Tyr-referenced (default) or direct RESP fit")
     args = ap.parse_args()
     {"build": cmd_build, "qm": cmd_qm, "fit": cmd_fit}[args.cmd](args)
 
