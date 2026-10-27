@@ -79,9 +79,11 @@ def update_structure(rep, sysdir, args):
     if state.get("xtc_size") == xtc.stat().st_size:
         return old
 
+    import warnings
     import MDAnalysis as mda
     from MDAnalysis.analysis.align import rotation_matrix
     from MDAnalysis.lib.distances import minimize_vectors
+    warnings.filterwarnings("ignore", message="Reload offsets")   # md.xtc grows while mdrun runs
 
     cache.mkdir(exist_ok=True)
     try:
