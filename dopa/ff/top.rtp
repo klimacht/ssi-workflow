@@ -1,0 +1,61 @@
+
+[ TOP ]
+ ; 2,4,5-trihydroxyphenylalanine (TOPA), RESP HF/6-31G*, see dopa/README.md
+ [ atoms ]
+      N     N    -0.41570    1
+      H     H     0.27190    2
+     CA    CT    -0.00780    3
+     HA    H1     0.10510    4
+     CB    CT    -0.01930    5
+    HB1    HC     0.04300    6
+    HB2    HC     0.04300    7
+     CG    CA    -0.06470    8
+    CD1    CA     0.29620    9
+    OD1    OH    -0.56530   10
+   HOD1    HO     0.41090   11
+    CE1    CA    -0.42070   12
+    HE1    HA     0.23040   13
+     CZ    CA     0.20640   14
+     OH    OH    -0.50800   15
+     HH    HO     0.39030   16
+    CE2    CA     0.27490   17
+    OE2    OH    -0.53520   18
+   HOE2    HO     0.38670   19
+    CD2    CA    -0.38920   20
+    HD2    HA     0.23770   21
+      C     C     0.59730   22
+      O     O    -0.56790   23
+ [ bonds ]
+      N      H
+      N     CA
+     CA     HA
+     CA     CB
+     CA      C
+     CB    HB1
+     CB    HB2
+     CB     CG
+     CG    CD1
+     CG    CD2
+    CD1    OD1
+    CD1    CE1
+    CE1    HE1
+    CE1     CZ
+     CZ     OH
+     CZ    CE2
+     OH     HH
+    CE2    OE2
+    OE2   HOE2
+    CE2    CD2
+    CD2    HD2
+      C      O
+     -C      N
+    OD1   HOD1
+ [ impropers ]
+     -C     CA      N      H
+     CA     +N      C      O
+     CG    CE2    CD2    HD2
+     CZ    CD2    CE2    OE2
+    CD1     CZ    CE1    HE1
+     CG    CE1    CD1    OD1
+    CD1    CD2     CG     CB
+    CE1    CE2     CZ     OH
