@@ -125,11 +125,18 @@ ff03 recipe and would be inconsistent with ff99SB.
 - HF/6-31G* gas phase (deliberately overpolarized, mimicking water, as in
   ff94), Cartesian d functions as in Gaussian's 6-31G*; PySCF (Sun et al. 2020)
   with geomeTRIC (Wang & Song 2016)
-- Merz–Kollman shells 1.4/1.6/1.8/2.0 × vdW radius, 6 points/Å²
+- Merz–Kollman shells 1.4/1.6/1.8/2.0 × vdW radius, 1 point/Å² (the
+  Merz–Kollman/Gaussian default used for ff94)
 - two-stage RESP (a = 0.0005 / 0.001, b = 0.1); backbone N, H, C, O fixed to
   the ff99SB values; residue and caps neutral
-- check: Tyr fitted with the same protocol vs. the ff99SB Tyr charges, see
-  `params/results/resp_report.txt`
+- check: Tyr fitted with the same protocol (symmetric ring atoms
+  equivalenced) vs. the ff99SB Tyr charges, see `params/results/resp_report.txt`
+
+The point density matters: the restraint weights are calibrated for
+1 point/Å². A first fit at 6 points/Å² weakened the restraints and let the
+buried carbons drift (Tyr check: max |Δq| = 0.20 e, e.g. CB −0.20 instead of
+−0.02); at 1 point/Å² with the Tyr ring symmetry the same QM data give
+max |Δq| ≈ 0.06 e. The hydroxyl charges of DOPA hardly depend on it.
 
 DOPA is modelled in its reduced, neutral catechol form (pKa ≈ 9–10,
 Lee et al. 2011).

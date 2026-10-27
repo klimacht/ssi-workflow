@@ -6,12 +6,13 @@ Recipe (Cornell et al. 1995; Cieplak et al. 1995; Bayly et al. 1993):
     beta (-120,140) conformation, phi/psi constrained, everything else relaxed
   * HF/6-31G* (Cartesian d, as Gaussian's default 6D) geometry and electrostatic
     potential with PySCF; constrained optimization with geomeTRIC
-  * Merz-Kollman sampling shells at 1.4/1.6/1.8/2.0 x vdW radius, 6 points/A^2
+  * Merz-Kollman sampling shells at 1.4/1.6/1.8/2.0 x vdW radius, 1 point/A^2
   * two-stage multi-conformation RESP (a = 0.0005 / 0.001, b = 0.1),
     backbone N, H, C, O fixed to the ff99SB values, residue and caps neutral
   * DOPA: both intramolecular catechol H-bond patterns (a: 3-OH donates,
     b: 4-OH donates) in both backbone conformations -> 4 conformers
   * Tyr is fitted with the same protocol as a check against ff99SB
+    (symmetric ring atoms equivalenced, as in ff94)
 
 Subcommands:
   build   write start geometries (xyz) + atom lists (json), for inspection
@@ -64,9 +65,15 @@ CONFORMERS = {
     "tyr_beta": ("TYR", BETA, None),
 }
 
+# Symmetry-equivalent atoms (Tyr ring flips); DAH has no such symmetry
+SYMMETRY = {"TYR": [("CD1", "CD2"), ("CE1", "CE2"), ("HD1", "HD2"), ("HE1", "HE2")], "DAH": []}
+
 MK_RADII = {"H": 1.20, "C": 1.50, "N": 1.50, "O": 1.40}
 SHELLS = (1.4, 1.6, 1.8, 2.0)
-DENSITY = 6.0                      # points per A^2
+# Points per A^2: 1 = Merz-Kollman / Gaussian default, as used for ff94. The RESP
+# restraint weights (a) are calibrated for it; denser grids weaken the restraints
+# and let buried carbons drift (Tyr check: max |dq| 0.20 at 6/A^2 vs 0.06 at 1/A^2).
+DENSITY = 1.0
 
 
 # ----------------------------------------------------------------------------
@@ -271,18 +278,27 @@ def cmd_qm(args):
     name = args.name
     elems, xyz, idx_phi, idx_psi = build_one(name, out)
 
-    cons = out / f"{name}_constraints.txt"
-    cons.write_text("$freeze\n"
-                    f"dihedral {' '.join(str(i + 1) for i in idx_phi)}\n"
-                    f"dihedral {' '.join(str(i + 1) for i in idx_psi)}\n")
+    def make_mol(coords, log):
+        return gto.M(atom=[(e, tuple(x)) for e, x in zip(elems, coords)], unit="Angstrom",
+                     basis="6-31g*", cart=True, charge=0, spin=0, verbose=4,
+                     output=str(out / log), max_memory=args.memory_mb)
 
-    mol = gto.M(atom=[(e, tuple(x)) for e, x in zip(elems, xyz)], unit="Angstrom",
-                basis="6-31g*", cart=True, charge=0, spin=0, verbose=4,
-                output=str(out / f"{name}_pyscf.log"), max_memory=args.memory_mb)
-    mf = scf.RHF(mol)
-    mf.conv_tol = 1e-9
-    mol_eq = optimize(mf, constraints=str(cons), maxsteps=args.maxsteps,
-                      prefix=str(out / f"{name}_geomeTRIC"))
+    opt_xyz = out / f"{name}.xyz"
+    if opt_xyz.exists() and "optimized" in opt_xyz.read_text().split("\n")[1]:
+        # reuse the optimized geometry (e.g. when only the ESP grid changed)
+        elems_eq, xyz_opt = read_xyz(opt_xyz)
+        assert elems_eq == elems, f"atom order changed in {opt_xyz}"
+        print(f"{name}: reusing optimized geometry from {opt_xyz}")
+        mol_eq = make_mol(xyz_opt, f"{name}_pyscf_esp.log")
+    else:
+        cons = out / f"{name}_constraints.txt"
+        cons.write_text("$freeze\n"
+                        f"dihedral {' '.join(str(i + 1) for i in idx_phi)}\n"
+                        f"dihedral {' '.join(str(i + 1) for i in idx_psi)}\n")
+        mf = scf.RHF(make_mol(xyz, f"{name}_pyscf.log"))
+        mf.conv_tol = 1e-9
+        mol_eq = optimize(mf, constraints=str(cons), maxsteps=args.maxsteps,
+                          prefix=str(out / f"{name}_geomeTRIC"))
 
     mf_eq = scf.RHF(mol_eq)
     mf_eq.conv_tol = 1e-10
@@ -376,16 +392,20 @@ def rrms(confs, q):
     return out
 
 
-def two_stage_resp(atoms, confs):
-    """Standard RESP-A1 style fit for an Ace-X-NMe dipeptide."""
+def two_stage_resp(atoms, confs, symmetric=()):
+    """Standard RESP-A1 style fit for an Ace-X-NMe dipeptide.
+
+    symmetric: pairs of residue atom names fitted with one common charge.
+    """
     n = len(atoms)
     idx = {(a[0], a[1]): i for i, a in enumerate(atoms)}
     res_atoms = [i for i, a in enumerate(atoms) if a[0] == "RES"]
     groups = [([i for i, a in enumerate(atoms) if a[0] == r], 0.0) for r in ("ACE", "RES", "NME")]
     fixed = {idx["RES", k]: v for k, v in BACKBONE.items()}
     heavy = [i for i, a in enumerate(atoms) if a[2] != "H"]
+    equiv1 = [[idx["RES", x], idx["RES", y]] for x, y in symmetric]
 
-    q1 = resp_fit(confs, n, fixed, groups, [], heavy, a=0.0005)
+    q1 = resp_fit(confs, n, fixed, groups, equiv1, heavy, a=0.0005)
 
     refit = {
         "RES": ["CB", "HB1", "HB2"],
@@ -469,14 +489,15 @@ def cmd_fit(args):
         raise SystemExit(f"ERROR: conformers missing in {args.workdir}: {sorted(missing)}")
     out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
-    report = []
+    report = [f"HF/6-31G* (Cartesian d), MK shells {SHELLS} x vdW, {DENSITY} points/A^2, "
+              "two-stage RESP a = 0.0005/0.001, b = 0.1", ""]
 
     results = {}
     for resname in ("TYR", "DAH"):
         names = [k for k, v in meta.items() if v["resname"] == resname]
         atoms = [tuple(a) for a in meta[names[0]]["atoms"]]
         confs = load_confs(meta, names)
-        charges, err = two_stage_resp(atoms, confs)
+        charges, err = two_stage_resp(atoms, confs, SYMMETRY[resname])
         res_names = [a[1] for a in atoms if a[0] == "RES"]
         results[resname] = round_neutral(charges, res_names)
         report.append(f"== {resname}: conformers {', '.join(names)}")
