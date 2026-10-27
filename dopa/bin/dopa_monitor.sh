@@ -244,6 +244,7 @@ for SYS in ${DETAIL:-${DOPA_SYSTEMS}}; do
   SITE="${DOPA_MUT}"
   [[ "$SYS" =~ ^y([0-9]+)_ ]] && SITE="${BASH_REMATCH[1]}"
   PARTNER=112; [ "$SITE" != "65" ] && PARTNER=65
+  [[ "$SYS" =~ ^x([0-9]+)_([0-9]+)$ ]] && SITE="${BASH_REMATCH[1]}" && PARTNER="${BASH_REMATCH[2]}"
   if [ "$CONV" -eq 1 ] && ls "${SD}"/rep*/nvt.log >/dev/null 2>&1; then
     python3 "${ROOT}/dopa/src/monitor_conv.py" --sysdir "$SD" --nrep "${DOPA_NREP}" \
       --first "${DOPA_FIRST}" --last "${DOPA_LAST}" --mut "${SITE}" --partner "${PARTNER}" \

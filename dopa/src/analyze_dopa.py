@@ -60,7 +60,7 @@ def analyze_replica(rep_dir, args):
     u = mda.Universe(str(rep_dir / "protein_ref.gro"), str(rep_dir / "md_center.xtc"))
     site = u.select_atoms(f"resid {args.mut}")
     resname = site.residues.resnames[0] if len(site) else "?"
-    if resname not in ("TYR", "DAH", "TOP"):
+    if resname not in ("TYR", "DAH", "TOP", "DTY"):
         raise SystemExit(f"{rep_dir}: residue {args.mut} is {resname}; residue numbering not preserved?")
 
     core_sel = f"name CA and resid {args.core}"

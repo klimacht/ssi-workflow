@@ -135,6 +135,45 @@ residue and its partners in the Y65/Y112/Y124/Y127 cluster.
 
 ---
 
+## Dityrosine cross-link Y65–Y127 (`x65_127`)
+
+The paper found Y65–Y124 and Y65–Y127 cross-links that persist at high
+oxidant dose and fit the NMR contacts (Maglio et al. 2002), i.e. likely
+intramolecular. In the AF3 model the ortho carbons CE2 of Y65 and Y127 are
+4.5 Å apart (Y65–Y124: 7.6 Å, rings point away from each other), so Y65–Y127
+is simulated first as 3,3'-dityrosine (C–C bond between the two CE2).
+
+**Parameters** (`params/dity_params.py`, job `slurm/15_dity_qm.slurm`):
+residue `DTY` = Tyr without HE2, with the bridge carbon CE2 of a new type `CP`
+(LJ as CA). parm99 has no biaryl type: an aromatic CA–CA bond would be
+1.40 Å long and its torsion would force both rings into one plane, whereas
+biaryls are twisted. Model compounds: the dityrosine core
+2,2'-dihydroxy-5,5'-dimethylbiphenyl and p-cresol (Tyr side chain).
+
+- bridge torsion: relaxed scan of CD2–CE2–CE2'–CD2' (30–180°, 15° steps) at
+  HF/6-31G*, MP2/6-31G* single points; both OH hydrogens point away from the
+  bridge so no gas-phase H-bond across the bridge enters the profile (in the
+  MD the OH···O interaction comes from the normal non-bonded terms); 0–15° are
+  left out because the two ortho oxygens would overlap; X–CP–CP–X (n = 2, 4)
+  fitted to E(MP2) − E(MM without this torsion) for points ≤ 50 kJ/mol
+- CP–CP bond length and CA–CP–CP angle from the QM geometries; other CP
+  terms copied from the aromatic CA terms
+- charges: RESP of the dimer (4 conformers) and p-cresol, Tyr-referenced as
+  for DOPA: ff99SB Tyr + (dimer half − p-cresol) for the ring and OH atoms
+
+**Start structure**: with a rigid backbone, χ1/χ2 rotations bring the two CE2
+only to 3.3–3.9 Å, so the environment has to adapt. `make_system_pdb.py`
+picks the clash-free rotamers with the best bridge alignment (3.87 Å);
+pdb2gmx creates the bond via `specbond.dat` at that distance (1-2/1-3 pairs
+across the link are excluded from non-bonded interactions from the start);
+`src/crosslink_topology.py` writes `topol_grow.top`, in which the bond length
+goes from 3.87 Å to the equilibrium value and all angle/dihedral terms across
+the link are switched on (λ 0 → 1 over 200 ps NVT, `mdp/grow.mdp`), with
+residues within 0.6 nm of the two rings unrestrained. The setup then checks
+the bridge length after minimization and continues as for the other systems.
+
+---
+
 ## DOPA parameters
 
 **Bonded terms** come from parm99 (Wang et al. 2000). Both hydroxylated ring

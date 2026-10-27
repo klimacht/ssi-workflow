@@ -1,0 +1,48 @@
+; grow.mdp
+; 200 ps NVT in which the dityrosine bond closes: topol_grow.top holds the
+; cross-link terms as A (start distance, k = 0) -> B (bonded) states, lambda goes
+; 0 -> 1 linearly. Residues near the link are free (define -DPOSRES_GROW).
+
+define                  = -DPOSRES_GROW
+integrator              = md
+dt                      = 0.002
+nsteps                  = 100000
+
+continuation            = no
+constraint_algorithm    = lincs
+constraints             = h-bonds
+lincs_iter              = 1
+lincs_order             = 4
+
+cutoff-scheme           = Verlet
+nstlist                 = 20
+coulombtype             = PME
+rcoulomb                = 1.0
+rvdw                    = 1.0
+DispCorr                = EnerPres
+pbc                     = xyz
+
+tcoupl                  = V-rescale
+tc-grps                 = Protein Non-Protein
+tau_t                   = 0.1 0.1
+ref_t                   = 300 300
+
+pcoupl                  = no
+
+free-energy             = yes
+init-lambda             = 0
+delta-lambda            = 1e-5
+sc-alpha                = 0
+nstdhdl                 = 0
+
+nstxout                 = 0
+nstvout                 = 0
+nstfout                 = 0
+nstenergy               = 500
+nstlog                  = 5000
+nstxout-compressed      = 2500
+compressed-x-grps       = Protein
+
+gen_vel                 = yes
+gen_temp                = 300
+gen_seed                = 4711

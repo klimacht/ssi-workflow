@@ -73,6 +73,14 @@ python3 "${SSI_ROOT}/dopa/src/make_system_pdb.py" \
   --input "${DOPA_SRC_PDB}" --out start.pdb \
   --first "${DOPA_FIRST}" --last "${DOPA_LAST}" \
   --default-mut "${DOPA_MUT}" --system "${SYSTEM}"
+if [ "${NEWRES}" = "DTY" ]; then
+  # cross-link: let pdb2gmx bond the two CE2 at their start distance (specbond.dat in
+  # the working directory overrides the library file); the bond closes during growth
+  D_NM=$(python3 -c "import json; print(json.load(open('crosslink.json'))['dist_A'] / 10)")
+  { echo $(( $(head -n 1 "${GMX_TOP}/specbond.dat") + 1 )); tail -n +2 "${GMX_TOP}/specbond.dat"
+    printf 'DTY\tCE2\t1\tDTY\tCE2\t1\t%s\tDTY\tDTY\n' "${D_NM}"; } > specbond.dat
+  echo "specbond.dat: DTY CE2 - DTY CE2 at ${D_NM} nm"
+fi
 
 echo
 echo "[3] pdb2gmx (ACE/NME caps, no charged termini)"
@@ -90,6 +98,7 @@ fi
 if [ "${NEWRES}" != "-" ]; then
   N_RES=$(awk -v r="${NEWRES}" 'NR>2 { n0=substr($0,6,5); gsub(/ /,"",n0); if (n0 == r) n++ } END{print n+0}' processed.gro)
   N_RTP=$(awk '/\[ atoms \]/{f=1; next} /\[ bonds \]/{f=0} f && NF>=4 {n++} END{print n+0}' "${SSI_ROOT}/dopa/ff/${RES_LC}.rtp")
+  [ "${NEWRES}" = "DTY" ] && N_RTP=$((2 * N_RTP))     # both cross-linked residues
   echo "${NEWRES} atoms in processed.gro: ${N_RES} (template: ${N_RTP})"
   if [ "${N_RES}" -ne "${N_RTP}" ]; then
     echo "ERROR: ${NEWRES} atom count does not match the template"
@@ -107,10 +116,30 @@ echo "SOL" | gmx1 genion -s ions.tpr -o solv_ions.gro -p topol.top \
 tail -n 8 topol.top
 
 echo
+EM_START=solv_ions.gro
+if [ "${NEWRES}" = "DTY" ]; then
+  echo
+  echo "[5a] Cross-link: close the dityrosine bond (lambda 0 -> 1 over 200 ps)"
+  grep -q "Linking DTY" pdb2gmx.log || { echo "ERROR: pdb2gmx did not link the DTY residues"; exit 1; }
+  grep "Linking DTY" pdb2gmx.log
+  python3 "${SSI_ROOT}/dopa/src/crosslink_topology.py" prepare --top topol.top --gro solv_ions.gro \
+    --link crosslink.json --ffdir "${DOPA_BASE_FF}-dopa.ff"
+  gmx1 grompp -f "${MDP}/em_grow.mdp" -c solv_ions.gro -p topol_grow.top -o em_grow.tpr
+  mpirun -np 16 "${GMX}" mdrun -deffnm em_grow -ntomp "${SLURM_CPUS_PER_TASK}"
+  gmx1 grompp -f "${MDP}/grow.mdp" -c em_grow.gro -r em_grow.gro -p topol_grow.top -o grow.tpr
+  mpirun -np 16 "${GMX}" mdrun -deffnm grow -ntomp "${SLURM_CPUS_PER_TASK}"
+  EM_START=grow.gro
+fi
+
+echo
 echo "[5] Energy minimization"
-gmx1 grompp -f "${MDP}/em.mdp" -c solv_ions.gro -p topol.top -o em.tpr
+gmx1 grompp -f "${MDP}/em.mdp" -c "${EM_START}" -p topol.top -o em.tpr
 mpirun -np 16 "${GMX}" mdrun -deffnm em -ntomp "${SLURM_CPUS_PER_TASK}"
 grep -E "Potential Energy|Maximum force" em.log | tail -n 2
+if [ "${NEWRES}" = "DTY" ]; then
+  B0=$(awk '$1 == "CP" && $2 == "CP" && $3 == "1" {print $4}' "${SSI_ROOT}/dopa/ff/dity_bonded.itp")
+  python3 "${SSI_ROOT}/dopa/src/crosslink_topology.py" report --gro em.gro --link crosslink.json --expect "${B0}"
+fi
 
 echo
 echo "[6] Index; check that the Protein group covers every protein atom"
@@ -119,7 +148,7 @@ N_PROT_NDX=$(awk '/^\[ Protein \]/{f=1; next} /^\[/{f=0} f{n+=NF} END{print n+0}
 N_PROT_GRO=$(awk 'NR>2 { rn=substr($0,6,5); gsub(/ /,"",rn); if (rn=="SOL"||rn=="NA"||rn=="CL") exit; n++ } END{print n+0}' em.gro)
 echo "Protein group: ${N_PROT_NDX} atoms; protein atoms in em.gro: ${N_PROT_GRO}"
 if [ "${N_PROT_NDX}" -ne "${N_PROT_GRO}" ]; then
-  echo "ERROR: Protein group incomplete (is DAH in residuetypes.dat?)"
+  echo "ERROR: Protein group incomplete (are DAH/TOP/DTY in residuetypes.dat?)"
   exit 1
 fi
 

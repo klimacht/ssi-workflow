@@ -1,0 +1,21 @@
+; em_grow.mdp
+; Energy minimization with topol_grow.top at lambda = 0 (cross-link bond at its
+; start length, the other cross-link terms switched off).
+
+integrator              = steep
+emtol                   = 500.0
+emstep                  = 0.01
+nsteps                  = 50000
+
+cutoff-scheme           = Verlet
+nstlist                 = 10
+coulombtype             = PME
+rcoulomb                = 1.0
+rvdw                    = 1.0
+DispCorr                = EnerPres
+pbc                     = xyz
+
+free-energy             = yes
+init-lambda             = 0
+sc-alpha                = 0
+nstdhdl                 = 0
