@@ -183,6 +183,10 @@ sbatch slurm/00_prepare.slurm 3LDJ A
 **Incomplete termini** — residues missing backbone atoms (N, CA, C) at the
 C-terminus are trimmed automatically during PDB cleaning.
 
+**Non-standard residues (L-DOPA)** — [`dopa/`](dopa/) contains a separate,
+unrestrained MD study of Phl p 5a with Tyr65 replaced by L-DOPA, including
+RESP charge derivation for the new residue.
+
 ## Coloring the map
 
 ```tcl
