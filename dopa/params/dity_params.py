@@ -21,7 +21,8 @@ Fit
             WT-to-DTY difference only reflects the cross-link (Tyr-referenced)
   bonded    CP-CP bond length and CA-CP-CP angle from the QM geometries; other CP
             terms copied from the aromatic CA terms of parm99; X-CP-CP-X torsion
-            (n = 2, 4) fitted to E(MP2) - E(MM without this torsion)
+            (n = 2, 4) fitted to E(MP2) - E(MM without this torsion), with the MM
+            geometries relaxed (torsion and OH restrained) and weights exp(-dE/10 kJ/mol)
 Output: ff/dty.rtp, ff/dty.hdb, ff/dity_bonded.itp, ff/dity_nonbonded.itp,
         ff/dity_atomtypes.atp, params/results/dity_report.txt (+ json/tsv)
 
@@ -40,7 +41,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "src"))
 import resp_dopa as R                                    # noqa: E402
-from amberff import AmberFF, Molecule, angle            # noqa: E402
+from amberff import AmberFF, CompiledMM, Molecule, angle, minimize   # noqa: E402
 
 HARTREE = 2625.499639                                     # kJ/mol
 B_CC = 1.49                                               # A, start value of the bridge
@@ -59,7 +60,9 @@ RING_OH = ["CG", "CD1", "HD1", "CD2", "HD2", "CE1", "HE1", "CE2", "CZ", "OH", "H
 # 0-15 deg (cis) would put the two ortho oxygens on top of each other; the even
 # Fourier terms of the bridge torsion are fixed by 30-180 deg
 TASKS = {f"scan_{p:03d}": ("dimer", p, "away", "away", True) for p in range(30, 181, 15)}
-FIT_EMAX = 50.0                                           # kJ/mol: scan points above are not fitted
+FIT_KT = 10.0                                             # kJ/mol, Boltzmann-like weights of the fit
+FIT_N = (2, 4)                                            # Fourier terms of X-CP-CP-X
+FIT_ITER = 8                                              # relax/fit cycles (stop when converged)
 TASKS.update({
     "resp_060_aa": ("dimer", 60, "away", "away", False),
     "resp_060_ta": ("dimer", 60, "toward", "away", False),
@@ -324,49 +327,67 @@ def cmd_fit(args):
     b0, th0 = float(np.mean(b)) / 10.0, float(np.mean(th))
     report += ["", f"bridge CE2-CE2': {np.mean(b):.4f} +- {np.std(b):.4f} A; CA-CP-CP angle {th0:.1f} +- {np.std(th):.1f} deg"]
 
-    # --- torsion fit: E(MP2) - E(MM without X-CP-CP-X) = const + sum_n c_n sum_d cos(n phi_d)
-    tmp = out / "dity_bonded_notorsion.itp"
-    tmp.write_text(bonded_itp(b0, th0, []))
+    # --- torsion fit, MM-relaxed and Boltzmann-weighted:
+    # every scan point is minimized with the full MM force field (bridge torsion
+    # and OH orientations restrained to the QM values), then
+    #   E(MP2) - E(MM without X-CP-CP-X) = const + sum_n c_n sum_d cos(n phi_d)
+    # is fitted with weights exp(-dE_MP2 / FIT_KT); repeated until the terms converge
     nb = out / "dity_nonbonded_tmp.itp"
     nb.write_text("[ atomtypes ]\nCP 6 12.01 0.0000 A 3.39967e-01 3.59824e-01\n")
-    ff = AmberFF(args.ffbase, extra=[nb, tmp])
+    tmp = out / "dity_bonded_tmp.itp"
     scans = sorted(t for t in TASKS if TASKS[t][4])
     mol = dimer_molecule(atoms_d, [q_d[i] for i in range(len(atoms_d))])
-    bridge = [d for d in mol.propers if {d[1], d[2]} == {idx(atoms_d, "A", "CE2"), idx(atoms_d, "B", "CE2")}]
-    rows, A, y = [], [], []
-    for nm in scans:
-        m, x = meta_all[nm]
-        xn = x / 10.0
-        e_mm = mol.energy(ff, xn, skip_proper=lambda t: t[1] == "CP" and t[2] == "CP")
-        phis = [R.dihedral(*x[list(d)]) for d in bridge]
-        A.append([1.0] + [sum(np.cos(np.radians(n * p)) for p in phis) for n in (2, 4)])
-        y.append(m["e_mp2"] * HARTREE - e_mm)
-        rows.append((m["phi"], m["e_mp2"] * HARTREE, e_mm))
-    A, y = np.array(A), np.array(y)
-    e_qm_all = np.array([r[1] for r in rows])
-    use = e_qm_all - e_qm_all.min() <= FIT_EMAX
-    coef, *_ = np.linalg.lstsq(A[use], y[use], rcond=None)
-    terms = []
-    for n, c in zip((2, 4), coef[1:]):
-        terms.append((0.0, c, n) if c >= 0 else (180.0, -c, n))   # k(1+cos(n phi - ph))
-    fit = A @ coef
-    e_qm = np.array([r[1] for r in rows])
-    e_mm0 = np.array([r[2] for r in rows])
-    e_mm = e_mm0 + fit - coef[0]
-    rel = lambda v: v - v.min()
-    rms = np.sqrt(np.mean(((rel(e_qm) - rel(e_mm)) ** 2)[use]))
-    rms0 = np.sqrt(np.mean(((rel(e_qm) - rel(e_mm0)) ** 2)[use]))
-    report += ["", "== bridge torsion X-CP-CP-X (kJ/mol): " +
-               ", ".join(f"n={n}: k={k:.3f}, phase={ph:.0f}" for ph, k, n in terms),
-               f"   RMS(QM - MM) over the fitted points (dE_MP2 <= {FIT_EMAX:g} kJ/mol, {use.sum()} of {len(use)}): "
-               f"{rms:.2f} kJ/mol with the fitted torsion, {rms0:.2f} kJ/mol without",
-               f"   {'phi':>6s} {'dE_MP2':>8s} {'dE_MM':>8s} {'dE_MM0':>8s}"]
-    tsv = ["phi\tdE_MP2\tdE_MM_fit\tdE_MM_no_torsion"]
-    for (phi, _, _), q, mm, m0 in zip(rows, rel(e_qm), rel(e_mm), rel(e_mm0)):
-        report.append(f"   {phi:6.1f} {q:8.2f} {mm:8.2f} {m0:8.2f}")
-        tsv.append(f"{phi:.1f}\t{q:.3f}\t{mm:.3f}\t{m0:.3f}")
+    ia, ib = idx(atoms_d, "A", "CE2"), idx(atoms_d, "B", "CE2")
+    bridge = [d for d in mol.propers if {d[1], d[2]} == {ia, ib}]
+    i_phi = [idx(atoms_d, r, n) for r, n in (("A", "CD2"), ("A", "CE2"), ("B", "CE2"), ("B", "CD2"))]
+    i_hh = [[idx(atoms_d, r, n) for n in ("CE1", "CZ", "OH", "HH")] for r in ("A", "B")]
+    skip = lambda t: t[1] == "CP" and t[2] == "CP"
+    e_qm = np.array([meta_all[t][0]["e_mp2"] for t in scans]) * HARTREE
+    dq = e_qm - e_qm.min()
+    sw = np.sqrt(np.exp(-dq / FIT_KT))
+    terms, history = [], []
+    for it in range(FIT_ITER):
+        tmp.write_text(bonded_itp(b0, th0, terms or [(0.0, 0.0, 2)]))      # first cycle: no torsion
+        ff = AmberFF(args.ffbase, extra=[nb, tmp])
+        A, e0, e_full, phis_min = [], [], [], []
+        for nm in scans:
+            x = meta_all[nm][1]
+            rest = [(*i_phi, R.dihedral(*x[i_phi]), 2000.0)] + [(*q, R.dihedral(*x[q]), 500.0) for q in i_hh]
+            mm = CompiledMM(mol, ff, restraints=rest)
+            xm, _ = minimize(mm, x / 10.0)
+            e_full.append(mm.energy(xm, restraints=False))
+            e0.append(CompiledMM(mol, ff, skip_proper=skip).energy(xm, restraints=False))
+            phis = [R.dihedral(*(xm[list(d)] * 10.0)) for d in bridge]           # degrees
+            A.append([1.0] + [sum(np.cos(np.radians(n * p_)) for p_ in phis) for n in FIT_N])
+            phis_min.append(R.dihedral(*(xm[i_phi] * 10.0)))
+        A, e0, e_full = np.array(A), np.array(e0), np.array(e_full)
+        coef, *_ = np.linalg.lstsq(A * sw[:, None], (e_qm - e0) * sw, rcond=None)
+        new_terms = [(0.0, c, n) if c >= 0 else (180.0, -c, n) for n, c in zip(FIT_N, coef[1:])]
+        change = max(abs(a[1] - b[1]) + (0 if a[0] == b[0] else 2 * abs(a[1]))
+                     for a, b in zip(new_terms, terms)) if terms else np.inf
+        history.append(", ".join(f"n={n}: {k:.3f}/{ph:.0f}" for ph, k, n in new_terms))
+        terms = new_terms
+        if change < 0.05:
+            break
     tmp.unlink()
     nb.unlink()
+    rel = lambda v: v - v.min()
+    e_fit = e0 + A @ coef - coef[0]               # MM with the fitted torsion, geometries of the last cycle
+    low = dq <= 15.0
+    rms_w = np.sqrt(np.sum(sw ** 2 * (rel(e_qm) - rel(e_fit)) ** 2) / np.sum(sw ** 2))
+    rms_low = np.sqrt(np.mean(((rel(e_qm) - rel(e_fit)) ** 2)[low]))
+    rms0_low = np.sqrt(np.mean(((rel(e_qm) - rel(e0)) ** 2)[low]))
+    report += ["", "== bridge torsion X-CP-CP-X (kJ/mol), MM-relaxed fit, weights exp(-dE/%g kJ/mol): " % FIT_KT +
+               ", ".join(f"n={n}: k={k:.3f}, phase={ph:.0f}" for ph, k, n in terms),
+               "   cycles: " + " | ".join(history),
+               f"   RMS(QM - MM) for dE_MP2 <= 15 kJ/mol ({low.sum()} points): {rms_low:.2f} kJ/mol "
+               f"with the fitted torsion, {rms0_low:.2f} without; Boltzmann-weighted RMS {rms_w:.2f}",
+               f"   {'phi':>6s} {'phi_MM':>7s} {'dE_MP2':>8s} {'dE_MM':>8s} {'dE_MM0':>8s} {'weight':>7s}"]
+    tsv = ["phi\tphi_MM\tdE_MP2\tdE_MM_fit\tdE_MM_no_torsion\tweight"]
+    for nm, pm, q, mmv, m0, w in zip(scans, phis_min, rel(e_qm), rel(e_fit), rel(e0), sw ** 2):
+        phi = meta_all[nm][0]["phi"]
+        report.append(f"   {phi:6.1f} {pm:7.1f} {q:8.2f} {mmv:8.2f} {m0:8.2f} {w:7.3f}")
+        tsv.append(f"{phi:.1f}\t{pm:.1f}\t{q:.3f}\t{mmv:.3f}\t{m0:.3f}\t{w:.4f}")
 
     # --- write force-field pieces
     lines = ["", "[ DTY ]", " ; 3,3'-dityrosine half (cross-linked Tyr, bridge carbon CE2 of type CP), "

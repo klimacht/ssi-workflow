@@ -1,0 +1,54 @@
+
+[ DTY ]
+ ; 3,3'-dityrosine half (cross-linked Tyr, bridge carbon CE2 of type CP), RESP HF/6-31G* Tyr-referenced, see dopa/README.md
+ [ atoms ]
+      N     N    -0.41570    1
+      H     H     0.27190    2
+     CA    CT    -0.00140    3
+     HA    H1     0.08760    4
+     CB    CT    -0.01520    5
+    HB1    HC     0.02950    6
+    HB2    HC     0.02950    7
+     CG    CA     0.10740    8
+    CD1    CA    -0.24380    9
+    HD1    HA     0.18930   10
+    CE1    CA    -0.31420   11
+    HE1    HA     0.18750   12
+     CZ    CA     0.35850   13
+     OH    OH    -0.57490   14
+     HH    HO     0.40950   15
+    CE2    CP    -0.03890   16
+    CD2    CA    -0.27850   17
+    HD2    HA     0.18250   18
+      C     C     0.59730   19
+      O     O    -0.56790   20
+ [ bonds ]
+      N      H
+      N     CA
+     CA     HA
+     CA     CB
+     CA      C
+     CB    HB1
+     CB    HB2
+     CB     CG
+     CG    CD1
+     CG    CD2
+    CD1    HD1
+    CD1    CE1
+    CE1    HE1
+    CE1     CZ
+     CZ     OH
+     CZ    CE2
+     OH     HH
+    CE2    CD2
+    CD2    HD2
+      C      O
+     -C      N
+ [ impropers ]
+     -C     CA      N      H
+     CA     +N      C      O
+     CG    CE2    CD2    HD2
+    CD1     CZ    CE1    HE1
+     CG    CE1    CD1    HD1
+    CD1    CD2     CG     CB
+    CE1    CE2     CZ     OH

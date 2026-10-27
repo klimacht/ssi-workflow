@@ -1,0 +1,16 @@
+; 3,3'-dityrosine bridge (type CP), see dopa/params/dity_params.py
+[ bondtypes ]
+  CA CP         1    0.14000   392459.2 ; as CA-CA (parm99)
+  CP CP         1    0.14975   292880.0 ; b0 from HF/6-31G*, k for a conjugated C-C single bond
+[ angletypes ]
+CA  CP  CA           1   120.000    527.184 ; as CA-CA-CA
+CA  CA  CP           1   120.000    527.184 ; as CA-CA-CA
+CA  CP  CP           1   121.231    527.184 ; theta0 from HF/6-31G*
+CP  CA  HA           1   120.000    418.400 ; as CA-CA-HA
+CP  CA  OH           1   120.000    585.760 ; as CA-CA-OH
+[ dihedraltypes ]
+CA  CP  CA  OH       4      180.00     4.60240     2 ; as CA-CA-CA-OH
+CA  CA  CP  CP       4      180.00     4.60240     2 ; bridge substituent, as CA-CA-CA-CT
+ X   CA  CP  X     9     180.0     15.16700     2 ; as X-CA-CA-X
+ X   CP  CP  X     9     180.0      4.31518     2 ; fitted to MP2/6-31G*//HF/6-31G* scan
+ X   CP  CP  X     9     180.0      0.46542     4 ; fitted to MP2/6-31G*//HF/6-31G* scan
