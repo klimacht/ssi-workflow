@@ -27,7 +27,7 @@ SYSTEMS=("${ARGS[@]:-}")
 [ -z "${SYSTEMS[0]:-}" ] && read -r -a SYSTEMS <<< "${DOPA_SYSTEMS}"
 
 SL="${ROOT}/dopa/slurm"
-mkdir -p "${DOPA_RUNS}" "${ROOT}/logs"
+[ -z "${DRY_RUN}" ] && mkdir -p "${DOPA_RUNS}" "${ROOT}/logs"
 
 submit() {   # submit DESC [sbatch args...] -> prints job id
   local desc="$1"; shift
@@ -48,9 +48,9 @@ case "${STAGE}" in
     ;;
   setup|all)
     for s in "${SYSTEMS[@]}"; do
-      mkdir -p "${DOPA_RUNS}/${s}"
+      [ -z "${DRY_RUN}" ] && mkdir -p "${DOPA_RUNS}/${s}"
       JID=$(submit "setup ${s}" "${SL}/12_setup.slurm" "${s}")
-      echo "${JID}" > "${DOPA_RUNS}/${s}/setup.jobid"
+      [ -z "${DRY_RUN}" ] && echo "${JID}" > "${DOPA_RUNS}/${s}/setup.jobid"
       echo "setup ${s}: ${JID}"
       if [ "${STAGE}" = "all" ]; then
         JID2=$(submit "prod ${s}" --dependency=afterok:${JID} "${SL}/13_production.slurm" "${s}")
