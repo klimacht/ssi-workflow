@@ -56,8 +56,16 @@ if [ "${MODE}" = "bench" ]; then
   exit 0
 fi
 
+# stop cleanly 15 min before this job's time limit (it can be shorter than
+# 12 h, e.g. to fit before a maintenance), so the job can resubmit itself
+LEFT=$(squeue -h -j "${SLURM_JOB_ID}" -o %L 2>/dev/null)
+MAXH=$(echo "${LEFT}" | awk -F'[-:]' '{ n = NF; s = $n + 60 * $(n-1); if (n >= 3) s += 3600 * $(n-2);
+  if (n >= 4) s += 86400 * $(n-3); h = s / 3600 - 0.25; if (h < 0.1) h = 0.1; printf "%.2f", h }')
+[ -n "${MAXH}" ] || MAXH=11.5
+echo "Time left ${LEFT:-?} -> mdrun -maxh ${MAXH}"
+
 mpirun -np "${SLURM_NTASKS}" "${GMX}" mdrun -multidir "${REPS[@]}" \
-  -s md.tpr -deffnm md -cpi md.cpt -maxh 11.5 \
+  -s md.tpr -deffnm md -cpi md.cpt -maxh "${MAXH}" \
   -ntomp "${SLURM_CPUS_PER_TASK}"
 
 n_done=0

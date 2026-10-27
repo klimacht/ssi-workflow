@@ -3,10 +3,11 @@
 
 Per replica:
   energies   from the GROMACS logs (md.log, else npt.log / nvt.log):
-             temperature, pressure, volume (box), potential energy
+             temperature, pressure, potential energy
   structure  from rep*/md.xtc (protein only), every --stride-th frame:
              Calpha RMSD of the helical core vs. the first production frame,
-             radius of gyration (Calpha), ring-centroid distance MUT-PARTNER
+             radius of gyration (Calpha), ring-centroid distance MUT-PARTNER,
+             box volume (the log has no per-step volume)
 Structure values are cached in rep*/.monitor/ so a refresh only reads new frames.
 Plots are drawn with gnuplot's dumb terminal (replicas as 1, 2, 3, 4).
 """
@@ -53,10 +54,6 @@ def parse_log(path):
                     except ValueError:
                         pass
                 j += 2
-            if j + 2 < len(lines) and "Box-X" in lines[j + 1]:
-                box = [float(v) for v in lines[j + 2].split()[:3]]
-                vals["Volume"] = box[0] * box[1] * box[2]
-                j += 3
             vals["time"] = t
             rows.append(vals)
             i = j
@@ -69,13 +66,13 @@ def parse_log(path):
 # structure from the trajectory (cached, incremental)
 # ---------------------------------------------------------------------------
 def update_structure(rep, sysdir, args):
-    """Append new frames to rep/.monitor/struct.tsv; return array (t_ns, rmsd, rg, dist)."""
+    """Append new frames to rep/.monitor/struct.tsv; return array (t_ns, rmsd, rg, dist, volume)."""
     xtc = rep / "md.xtc"
     cache = rep / ".monitor"
     table = cache / "struct.tsv"
     state_f = cache / "state.json"
     ref_f = cache / "ref_core.npy"
-    old = np.loadtxt(table, ndmin=2) if table.exists() and table.stat().st_size else np.empty((0, 4))
+    old = np.loadtxt(table, ndmin=2) if table.exists() and table.stat().st_size else np.empty((0, 5))
     if not xtc.exists() or xtc.stat().st_size == 0:
         return old
     state = json.loads(state_f.read_text()) if state_f.exists() else {}
@@ -132,13 +129,13 @@ def update_structure(rep, sysdir, args):
             rg = np.sqrt(((pos - pos.mean(axis=0)) ** 2).sum(axis=1).mean())
             dist = (np.linalg.norm(cent[args.mut] - cent[args.partner])
                     if args.mut in cent and args.partner in cent else np.nan)
-            rows.append(((ts.time - t_first) / 1000.0, rmsd, rg, dist))
+            rows.append(((ts.time - t_first) / 1000.0, rmsd, rg, dist, ts.volume / 1000.0))
             start = ts.frame + args.stride
     except Exception as exc:
         print(f"      ({rep.name}: stopped reading at frame {start}: {exc.__class__.__name__})")
     new = np.vstack([old, np.array(rows)]) if rows else old
     tmp = cache / "struct.tsv.tmp"
-    np.savetxt(tmp, new, fmt="%.4f", header="t_ns rmsd_A rg_A dist_A")
+    np.savetxt(tmp, new, fmt="%.4f", header="t_ns rmsd_A rg_A dist_A volume_nm3")
     os.replace(tmp, table)
     state.update(next_frame=start, t_first=t_first, xtc_size=xtc.stat().st_size)
     state_f.write_text(json.dumps(state))
@@ -233,10 +230,9 @@ def main():
                 return np.array([r.get(key, np.nan) for r in e])
             parts.append(f"{phase[rep.name].upper():3s} T {fmt(tail_stats(t, col('Temperature'), win_ps), '{:.1f}')} K")
             parts.append(f"P {fmt(tail_stats(t, col('Pressure (bar)'), win_ps), '{:.0f}')} bar")
-            if "Volume" in e[-1]:
-                parts.append(f"V {fmt(tail_stats(t, col('Volume'), win_ps), '{:.2f}')} nm3")
         s = struct.get(rep.name)
         if s is not None and len(s):
+            parts.append(f"V {fmt(tail_stats(s[:, 0], s[:, 4], args.window), '{:.1f}')} nm3")
             parts.append(f"RMSD {fmt(tail_stats(s[:, 0], s[:, 1], args.window))} A")
             parts.append(f"Rg {fmt(tail_stats(s[:, 0], s[:, 2], args.window))} A")
             parts.append(f"d{args.mut}-{args.partner} {fmt(tail_stats(s[:, 0], s[:, 3], args.window))} A")
@@ -262,18 +258,18 @@ def main():
                             np.array([x.get(key, np.nan) for x in e]) * scale))
         return out
 
+    phases = "/".join(sorted(set(phase.values())))
     plots = []
     if struct:
         plots.append((struct_series(1), f"Calpha RMSD core {args.core[0]}-{args.core[1]} (A), replicas 1-4", "A"))
         if args.plot == "full":
-            plots.append((struct_series(3), f"ring distance {args.mut}-{args.partner} (A)", "A"))
-            plots.append((struct_series(2), "radius of gyration Calpha (A)", "A"))
+            plots.append((struct_series(3), f"ring distance {args.mut}-{args.partner} (A), replicas 1-4", "A"))
+            plots.append((struct_series(2), "radius of gyration Calpha (A), replicas 1-4", "A"))
+            plots.append((struct_series(4), "box volume (nm3), replicas 1-4", "nm3"))
     if args.plot == "full" or not struct:
-        if any(phase.get(r.name) in ("npt", "md") for r in reps):
-            plots.append((energy_series("Volume"), f"box volume (nm3), {'/'.join(sorted(set(phase.values())))}", "nm3"))
+        plots.append((energy_series("Potential", 1e-3), f"potential energy (MJ/mol), {phases}, replicas 1-4", "MJ/mol"))
         if args.plot == "full":
-            plots.append((energy_series("Temperature"), "temperature (K)", "K"))
-            plots.append((energy_series("Potential", 1e-3), "potential energy (MJ/mol)", "MJ/mol"))
+            plots.append((energy_series("Temperature"), f"temperature (K), {phases}, replicas 1-4", "K"))
     for series, title, ylab in plots:
         txt = gnuplot(series, title, ylab, width, h_big if args.plot == "full" else h_small)
         if txt:
