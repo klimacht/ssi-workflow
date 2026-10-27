@@ -26,8 +26,8 @@ from MDAnalysis.analysis.align import rotation_matrix
 from MDAnalysis.lib.distances import distance_array, calc_dihedrals
 
 RING = ("CG", "CD1", "CD2", "CE1", "CE2", "CZ")
-SITE_OXYGENS = ("OH", "OE2")
-SITE_HYDROGENS = ("HH", "HOE2")
+SITE_OXYGENS = ("OH", "OE2", "OD1")       # Tyr / DOPA / TOPA hydroxyl oxygens
+SITE_HYDROGENS = ("HH", "HOE2", "HOD1")
 CONTACT_CUTOFF = 4.5      # A, heavy atoms
 HB_DIST, HB_ANGLE = 3.5, 150.0
 
@@ -60,7 +60,7 @@ def analyze_replica(rep_dir, args):
     u = mda.Universe(str(rep_dir / "protein_ref.gro"), str(rep_dir / "md_center.xtc"))
     site = u.select_atoms(f"resid {args.mut}")
     resname = site.residues.resnames[0] if len(site) else "?"
-    if resname not in ("TYR", "DAH"):
+    if resname not in ("TYR", "DAH", "TOP"):
         raise SystemExit(f"{rep_dir}: residue {args.mut} is {resname}; residue numbering not preserved?")
 
     core_sel = f"name CA and resid {args.core}"

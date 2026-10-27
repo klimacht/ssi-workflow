@@ -240,24 +240,29 @@ for SYS in ${DETAIL:-${DOPA_SYSTEMS}}; do
   fi
 
   # convergence numbers (+ plots): energies from the logs, RMSD/Rg/ring distance from md.xtc
+  # site of this system (y112_... -> 112; wt/dah_* -> DOPA_MUT); partner ring: Y112, or Y65
+  SITE="${DOPA_MUT}"
+  [[ "$SYS" =~ ^y([0-9]+)_ ]] && SITE="${BASH_REMATCH[1]}"
+  PARTNER=112; [ "$SITE" != "65" ] && PARTNER=65
   if [ "$CONV" -eq 1 ] && ls "${SD}"/rep*/nvt.log >/dev/null 2>&1; then
     python3 "${ROOT}/dopa/src/monitor_conv.py" --sysdir "$SD" --nrep "${DOPA_NREP}" \
-      --first "${DOPA_FIRST}" --last "${DOPA_LAST}" --mut "${DOPA_MUT}" --plot "$PLOT_MODE" 2>&1 \
-      | grep -v "^\s*$"
+      --first "${DOPA_FIRST}" --last "${DOPA_LAST}" --mut "${SITE}" --partner "${PARTNER}" \
+      --plot "$PLOT_MODE" 2>&1 | grep -v "^\s*$"
   fi
 done
 
 # ---------------------------------------------------------------------------
-# Analysis (overview only)
+# Analysis (overview only), one table per site
 # ---------------------------------------------------------------------------
-SUMMARY="${DOPA_RUNS}/analysis/summary.tsv"
 ast="${J_STATE[dopa_analysis]:-}"
-if [ -n "$DETAIL" ]; then
-  :
-elif [ -s "$SUMMARY" ]; then
+n_summary=0
+for SUMMARY in "${DOPA_RUNS}"/analysis/site*/summary.tsv; do
+  [ -z "$DETAIL" ] && [ -s "$SUMMARY" ] || continue
+  n_summary=$((n_summary + 1))
+  systems=$(awk -F'\t' 'NR > 1 && !($2 in s) { s[$2] = 1; printf "%s ", $2 }' "$SUMMARY")
   echo
-  echo "▶ Analysis  (${SUMMARY#${ROOT}/}, $(date -r "$SUMMARY" '+%d.%m. %H:%M'))${ast:+  job: $ast}"
-  awk -F'\t' -v systems="${DOPA_SYSTEMS}" '
+  echo "▶ Analysis $(basename "$(dirname "$SUMMARY")")  (${SUMMARY#${ROOT}/}, $(date -r "$SUMMARY" '+%d.%m. %H:%M'))${ast:+  job: $ast}"
+  awk -F'\t' -v systems="${systems}" '
     NR == 1 { next }
     { key = $1 SUBSEP $2; val[key] = sprintf("%.3f±%.3f", $4, $5); if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1 } }
     END {
@@ -269,7 +274,8 @@ elif [ -s "$SUMMARY" ]; then
         printf "\n"
       }
     }' "$SUMMARY"
-else
+done
+if [ -z "$DETAIL" ] && [ "$n_summary" -eq 0 ]; then
   echo
   echo "▶ Analysis  ${ast:--}"
 fi

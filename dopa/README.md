@@ -107,6 +107,34 @@ inaccessible, that variant can be treated as a control.
 
 ---
 
+## Further hydroxylated systems
+
+Besides Y65 → DOPA, the same domain and the same wild-type runs serve as
+reference for
+
+| System | Modification | Why |
+|--------|--------------|-----|
+| `y112_dah_ce1`, `y112_dah_ce2` | Y112 → DOPA | hydroxylated in the paper (1.6 %); ring neighbour of Y65 in the Tyr cluster |
+| `y127_dah_ce1`, `y127_dah_ce2` | Y127 → DOPA | hydroxylated (0.7 %); ring neighbour of Y65 |
+| `y65_top_ce1`, `y65_top_ce2` | Y65 → TOPA (2,4,5-trihydroxyphenylalanine) | multi-hydroxylation was detected; TOPA = DOPA + OH on the CD carbon para to the new 3-OH |
+
+System names: `y<N>_<dah|top>_<ce1|ce2>` (`ce1`/`ce2` = ring carbon that gets
+the new 3-OH, named as in the AF3 model); `dah_ce1`/`dah_ce2` are Y65.
+`make_system_pdb.py` prints the closest atom to each new oxygen in the start
+structure: Y112-OE2 points at E116-OE1 (ce1, 2.2 Å) or Y65-OH (ce2, 3.3 Å),
+i.e. H-bond partners; Y127-OE2 starts close to F68 (ce1, 2.5 Å) or the Y112
+backbone N (ce2, 2.8 Å); energy minimization resolves these contacts.
+
+TOPA (residue `TOP`) is parameterized like DOPA: 8 conformers (α/β × both
+catechol H-bond patterns × both orientations of the 2-OH H), same RESP
+protocol and Tyr-referenced charges (`replaced` Tyr H: HE2 and HD1).
+
+The analysis compares, per site (`DOPA_SITES`), the wild type with all systems
+modified there (`runs/dopa/analysis/site<N>/`); the site metrics refer to that
+residue and its partners in the Y65/Y112/Y124/Y127 cluster.
+
+---
+
 ## DOPA parameters
 
 **Bonded terms** come from parm99 (Wang et al. 2000). Both hydroxylated ring
@@ -182,6 +210,7 @@ Settings for this study (domain, systems, replicas, paths) are in
 
 ```bash
 bash dopa/bin/dopa_submit.sh resp            # steps 1-2 (once; results get committed)
+bash dopa/bin/dopa_submit.sh resp TOP        # QM only for one residue, then fit of all
 bash dopa/bin/dopa_submit.sh setup           # step 4 for wt, dah_ce1, dah_ce2
 bash dopa/bin/dopa_submit.sh bench wt        # step 5
 bash dopa/bin/dopa_submit.sh prod            # step 6 (waits for running setup jobs)

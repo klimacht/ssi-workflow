@@ -16,7 +16,7 @@
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
-  echo "Usage: sbatch 12_setup.slurm SYSTEM   (wt | dah_ce1 | dah_ce2)"
+  echo "Usage: sbatch 12_setup.slurm SYSTEM   (wt | dah_ce1 | y112_dah_ce2 | y65_top_ce1 | ...)"
   exit 1
 fi
 SYSTEM="$1"
@@ -35,6 +35,9 @@ for r in $(seq 1 "${DOPA_NREP}"); do REPS+=("rep${r}"); done
 
 gmx1() { mpirun -np 1 "${GMX}" "$@"; }
 
+# mutation site and residue of this system (see make_system_pdb.py)
+read -r SITE NEWRES ORIENT < <(python3 "${SSI_ROOT}/dopa/src/make_system_pdb.py"   --parse "${SYSTEM}" --default-mut "${DOPA_MUT}")
+
 if [ $((SLURM_NTASKS % DOPA_NREP)) -ne 0 ]; then
   echo "ERROR: SLURM_NTASKS=${SLURM_NTASKS} not divisible by DOPA_NREP=${DOPA_NREP}"
   exit 1
@@ -47,7 +50,8 @@ echo "============================================================"
 echo "DOPA setup job"
 echo "SYSTEM                = ${SYSTEM}"
 echo "SYS_DIR               = ${SYS_DIR}"
-echo "DOMAIN                = ${DOPA_FIRST}-${DOPA_LAST} (mutation site ${DOPA_MUT})"
+echo "DOMAIN                = ${DOPA_FIRST}-${DOPA_LAST}"
+echo "MODIFICATION          = ${NEWRES} at residue ${SITE} (ring side ${ORIENT})"
 echo "FORCE FIELD / WATER   = ${DOPA_BASE_FF}-dopa / ${DOPA_WATER}"
 echo "REPLICAS              = ${REPS[*]}"
 echo "GMX                   = ${GMX}"
@@ -56,8 +60,11 @@ echo "SLURM_CPUS_PER_TASK   = ${SLURM_CPUS_PER_TASK}"
 echo "============================================================"
 
 echo
-echo "[1] Force field with DAH"
-ssi_require "${SSI_ROOT}/dopa/ff/dah.rtp" "${SSI_ROOT}/dopa/ff/dah.hdb"
+echo "[1] Force field with the hydroxylated Tyr residues"
+if [ "${NEWRES}" != "-" ]; then
+  RES_LC=$(echo "${NEWRES}" | tr '[:upper:]' '[:lower:]')
+  ssi_require "${SSI_ROOT}/dopa/ff/${RES_LC}.rtp" "${SSI_ROOT}/dopa/ff/${RES_LC}.hdb"
+fi
 bash "${SSI_ROOT}/dopa/ff/make_ff.sh" "${GMX_TOP}" "${DOPA_BASE_FF}" "${SYS_DIR}"
 
 echo
@@ -65,7 +72,7 @@ echo "[2] Domain structure"
 python3 "${SSI_ROOT}/dopa/src/make_system_pdb.py" \
   --input "${DOPA_SRC_PDB}" --out start.pdb \
   --first "${DOPA_FIRST}" --last "${DOPA_LAST}" \
-  --mut "${DOPA_MUT}" --variant "${SYSTEM}"
+  --default-mut "${DOPA_MUT}" --system "${SYSTEM}"
 
 echo
 echo "[3] pdb2gmx (ACE/NME caps, no charged termini)"
@@ -80,11 +87,14 @@ if ! grep -q "Identified residue ACE.* as a starting terminus" pdb2gmx.log || \
   echo "ERROR: caps not recognized or charged termini added (${N_CHARGED_TER} atoms), see ${SYS_DIR}/pdb2gmx.log"
   exit 1
 fi
-N_DAH=$(awk 'NR>2 && substr($0,6,5) ~ /^DAH/ {n++} END{print n+0}' processed.gro)
-echo "DAH atoms in processed.gro: ${N_DAH}"
-if [ "${SYSTEM}" != "wt" ] && [ "${N_DAH}" -ne 22 ]; then
-  echo "ERROR: expected 22 DAH atoms"
-  exit 1
+if [ "${NEWRES}" != "-" ]; then
+  N_RES=$(awk -v r="${NEWRES}" 'NR>2 { n0=substr($0,6,5); gsub(/ /,"",n0); if (n0 == r) n++ } END{print n+0}' processed.gro)
+  N_RTP=$(awk '/\[ atoms \]/{f=1; next} /\[ bonds \]/{f=0} f && NF>=4 {n++} END{print n+0}' "${SSI_ROOT}/dopa/ff/${RES_LC}.rtp")
+  echo "${NEWRES} atoms in processed.gro: ${N_RES} (template: ${N_RTP})"
+  if [ "${N_RES}" -ne "${N_RTP}" ]; then
+    echo "ERROR: ${NEWRES} atom count does not match the template"
+    exit 1
+  fi
 fi
 
 echo

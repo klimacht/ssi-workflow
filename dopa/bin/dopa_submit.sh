@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # dopa_submit.sh — submit the stages of the DOPA mutant study.
 #
-#   dopa_submit.sh resp                     QM array (6 conformers) + RESP fit
+#   dopa_submit.sh resp   [RES]             QM (all conformers, or one residue) + RESP fit
 #   dopa_submit.sh setup  [SYSTEM...]       build + equilibrate (default: all systems)
 #   dopa_submit.sh bench  SYSTEM            20k-step benchmark after setup
 #   dopa_submit.sh prod   [SYSTEM...]       production (waits for a running setup job)
 #   dopa_submit.sh all    [SYSTEM...]       setup -> production chain
+#
+# Production uses DOPA_PROD_NODES nodes per system (dopa.env); set
+# DOPA_TIME_MIN (e.g. 01:00:00) to let Slurm shorten jobs to fit before a
+# maintenance reservation.
 #   dopa_submit.sh analysis                 post-processing + comparison
 #
 # Add --dry-run as the last argument to print the sbatch calls only.
@@ -26,6 +30,8 @@ SYSTEMS=("${ARGS[@]:-}")
 [ -z "${SYSTEMS[0]:-}" ] && read -r -a SYSTEMS <<< "${DOPA_SYSTEMS}"
 
 SL="${ROOT}/dopa/slurm"
+PROD=(--nodes="${DOPA_PROD_NODES:-1}")
+[ -n "${DOPA_TIME_MIN:-}" ] && PROD+=(--time-min="${DOPA_TIME_MIN}")
 [ -z "${DRY_RUN}" ] && mkdir -p "${DOPA_RUNS}" "${ROOT}/logs"
 
 submit() {   # submit DESC [sbatch args...] -> prints job id
@@ -40,8 +46,8 @@ submit() {   # submit DESC [sbatch args...] -> prints job id
 
 case "${STAGE}" in
   resp)
-    JID=$(submit qm "${SL}/10_resp_qm.slurm")
-    echo "QM array:   ${JID}"
+    JID=$(submit qm "${SL}/10_resp_qm.slurm" "${ARGS[@]:-}")
+    echo "QM:         ${JID} ${ARGS[*]:-}"
     JID2=$(submit fit --dependency=afterok:${JID} "${SL}/11_resp_fit.slurm")
     echo "RESP fit:   ${JID2} (after ${JID})"
     ;;
@@ -52,7 +58,7 @@ case "${STAGE}" in
       [ -z "${DRY_RUN}" ] && echo "${JID}" > "${DOPA_RUNS}/${s}/setup.jobid"
       echo "setup ${s}: ${JID}"
       if [ "${STAGE}" = "all" ]; then
-        JID2=$(submit "prod ${s}" -J "dopa_md_${s}" --dependency=afterok:${JID} "${SL}/13_production.slurm" "${s}")
+        JID2=$(submit "prod ${s}" -J "dopa_md_${s}" "${PROD[@]}" --dependency=afterok:${JID} "${SL}/13_production.slurm" "${s}")
         echo "prod  ${s}: ${JID2} (after ${JID})"
       fi
     done
@@ -71,7 +77,7 @@ case "${STAGE}" in
           DEP=(--dependency=afterok:${SJ})
         fi
       fi
-      JID=$(submit "prod ${s}" -J "dopa_md_${s}" "${DEP[@]}" "${SL}/13_production.slurm" "${s}")
+      JID=$(submit "prod ${s}" -J "dopa_md_${s}" "${PROD[@]}" "${DEP[@]}" "${SL}/13_production.slurm" "${s}")
       echo "prod ${s}: ${JID} ${DEP[*]}"
     done
     ;;

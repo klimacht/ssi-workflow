@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""RESP charges for L-DOPA (residue name DAH) compatible with Amber ff94/ff99SB(-ILDN).
+"""RESP charges for hydroxylated tyrosines compatible with Amber ff94/ff99SB(-ILDN):
+L-DOPA (3,4-dihydroxyphenylalanine, residue DAH) and TOPA (2,4,5-trihydroxy-
+phenylalanine, residue TOP).
 
 Recipe (Cornell et al. 1995; Cieplak et al. 1995; Bayly et al. 1993):
   * capped dipeptides Ace-X-NMe, backbone in alpha (phi,psi = -60,-40) and
@@ -10,14 +12,17 @@ Recipe (Cornell et al. 1995; Cieplak et al. 1995; Bayly et al. 1993):
   * two-stage multi-conformation RESP (a = 0.0005 / 0.001, b = 0.1),
     backbone N, H, C, O fixed to the ff99SB values, residue and caps neutral
   * DOPA: both intramolecular catechol H-bond patterns (a: 3-OH donates,
-    b: 4-OH donates) in both backbone conformations -> 4 conformers
+    b: 4-OH donates) in both backbone conformations -> 4 conformers;
+    TOPA: additionally both in-plane orientations of the 2-OH H (e: towards
+    CE1, g: towards CG) -> 8 conformers
   * Tyr is fitted with the same protocol as a check against ff99SB
     (symmetric ring atoms equivalenced, as in ff94)
-  * DAH charges written to the force field (default): Tyr-referenced,
-    ff99SB Tyr + (DAH fit - Tyr fit), so that the residual difference of our
-    protocol to the original ff94 fit cancels between WT and DOPA
+  * charges written to the force field (default): Tyr-referenced,
+    ff99SB Tyr + (fit - Tyr fit), so that the residual difference of our
+    protocol to the original ff94 fit cancels between WT and the modified residue
 
 Subcommands:
+  list    print conformer names (optionally of one residue)
   build   write start geometries (xyz) + atom lists (json), for inspection
   qm      build one conformer, optimize it and write <name>.xyz + <name>_vpot.out
           (needs pyscf and geometric, see make_qm_venv.sh)
@@ -43,8 +48,8 @@ TYR_FF99SB = {
     "C": 0.5973, "O": -0.5679,
 }
 
-# Amber atom types for DAH. Both hydroxylated ring carbons are typed CA so that
-# every bonded term exists in parm99 (CA-OH, CA-CA-OH, CA-OH-HO, X-CA-OH-X,
+# Amber atom types. All hydroxylated ring carbons are typed CA so that every
+# bonded term exists in parm99 (CA-OH, CA-CA-OH, CA-OH-HO, X-CA-OH-X,
 # improper CA-CA-CA-OH). Tyr uses type C for CZ, but C-CA-OH is not defined.
 DAH_TYPES = [
     ("N", "N"), ("H", "H"), ("CA", "CT"), ("HA", "H1"), ("CB", "CT"),
@@ -53,13 +58,48 @@ DAH_TYPES = [
     ("CE2", "CA"), ("OE2", "OH"), ("HOE2", "HO"), ("CD2", "CA"), ("HD2", "HA"),
     ("C", "C"), ("O", "O"),
 ]
+TOP_TYPES = [
+    ("N", "N"), ("H", "H"), ("CA", "CT"), ("HA", "H1"), ("CB", "CT"),
+    ("HB1", "HC"), ("HB2", "HC"), ("CG", "CA"), ("CD1", "CA"), ("OD1", "OH"), ("HOD1", "HO"),
+    ("CE1", "CA"), ("HE1", "HA"), ("CZ", "CA"), ("OH", "OH"), ("HH", "HO"),
+    ("CE2", "CA"), ("OE2", "OH"), ("HOE2", "HO"), ("CD2", "CA"), ("HD2", "HA"),
+    ("C", "C"), ("O", "O"),
+]
+DAH_BONDS = [("N", "H"), ("N", "CA"), ("CA", "HA"), ("CA", "CB"), ("CA", "C"), ("CB", "HB1"),
+             ("CB", "HB2"), ("CB", "CG"), ("CG", "CD1"), ("CG", "CD2"), ("CD1", "HD1"),
+             ("CD1", "CE1"), ("CE1", "HE1"), ("CE1", "CZ"), ("CZ", "OH"), ("CZ", "CE2"),
+             ("OH", "HH"), ("CE2", "OE2"), ("OE2", "HOE2"), ("CE2", "CD2"), ("CD2", "HD2"),
+             ("C", "O"), ("-C", "N")]
+DAH_IMPROPERS = [("-C", "CA", "N", "H"), ("CA", "+N", "C", "O"), ("CG", "CE2", "CD2", "HD2"),
+                 ("CZ", "CD2", "CE2", "OE2"), ("CD1", "CZ", "CE1", "HE1"),
+                 ("CG", "CE1", "CD1", "HD1"), ("CD1", "CD2", "CG", "CB"), ("CE1", "CE2", "CZ", "OH")]
+DAH_HDB = ["1\t1\tH\tN\t-C\tCA", "1\t5\tHA\tCA\tN\tCB\tC", "2\t6\tHB\tCB\tCA\tCG",
+           "1\t1\tHD1\tCD1\tCG\tCE1", "1\t1\tHE1\tCE1\tCD1\tCZ", "1\t2\tHH\tOH\tCZ\tCE1",
+           "1\t2\tHOE2\tOE2\tCE2\tCZ", "1\t1\tHD2\tCD2\tCG\tCE2"]
+
+RESIDUES = {
+    "DAH": {
+        "title": "L-3,4-dihydroxyphenylalanine (L-DOPA)",
+        "types": DAH_TYPES, "bonds": DAH_BONDS, "impropers": DAH_IMPROPERS, "hdb": DAH_HDB,
+        "replaced": {"HE2": "CE2"},           # Tyr H replaced by an OH -> its carbon
+    },
+    "TOP": {
+        "title": "2,4,5-trihydroxyphenylalanine (TOPA)",
+        "types": TOP_TYPES,
+        "bonds": [("CD1", "OD1") if b == ("CD1", "HD1") else b for b in DAH_BONDS] + [("OD1", "HOD1")],
+        "impropers": [("CG", "CE1", "CD1", "OD1") if i == ("CG", "CE1", "CD1", "HD1") else i
+                      for i in DAH_IMPROPERS],
+        "hdb": ["1\t2\tHOD1\tOD1\tCD1\tCE1" if h.startswith("1\t1\tHD1") else h for h in DAH_HDB],
+        "replaced": {"HE2": "CE2", "HD1": "CD1"},
+    },
+}
 
 ALPHA = (-60.0, -40.0)
 BETA = (-120.0, 140.0)
 CHI1, CHI2 = 180.0, 90.0          # Y65 in the AF3 model: chi1 = 176, chi2 = -106
 
 CONFORMERS = {
-    # name: (residue, (phi, psi), catechol H-bond pattern)
+    # name: (residue, (phi, psi), H-bond pattern: catechol a/b [_ 2-OH e/g])
     "dah_alpha_a": ("DAH", ALPHA, "a"),
     "dah_alpha_b": ("DAH", ALPHA, "b"),
     "dah_beta_a": ("DAH", BETA, "a"),
@@ -67,9 +107,13 @@ CONFORMERS = {
     "tyr_alpha": ("TYR", ALPHA, None),
     "tyr_beta": ("TYR", BETA, None),
 }
+for _bb, _phipsi in (("alpha", ALPHA), ("beta", BETA)):
+    for _cat in "ab":
+        for _oh in "eg":
+            CONFORMERS[f"top_{_bb}_{_cat}_{_oh}"] = ("TOP", _phipsi, f"{_cat}_{_oh}")
 
-# Symmetry-equivalent atoms (Tyr ring flips); DAH has no such symmetry
-SYMMETRY = {"TYR": [("CD1", "CD2"), ("CE1", "CE2"), ("HD1", "HD2"), ("HE1", "HE2")], "DAH": []}
+# Symmetry-equivalent atoms (Tyr ring flips); the hydroxylated rings have none
+SYMMETRY = {"TYR": [("CD1", "CD2"), ("CE1", "CE2"), ("HD1", "HD2"), ("HE1", "HE2")], "DAH": [], "TOP": []}
 
 MK_RADII = {"H": 1.20, "C": 1.50, "N": 1.50, "O": 1.40}
 SHELLS = (1.4, 1.6, 1.8, 2.0)
@@ -159,14 +203,18 @@ def build_dipeptide(resname, phi, psi, pattern):
         X["RES", "HH"] = place(g("CE1"), g("CZ"), g("OH"), 0.960, 113.0, 0.0)
     else:
         X["RES", "OE2"] = place(g("CG"), g("CD2"), g("CE2"), 1.360, 120.0, 180.0)
-        if pattern == "a":      # 3-OH donates to the 4-O, 4-OH points away
+        if pattern[0] == "a":   # 3-OH donates to the 4-O, 4-OH points away
             X["RES", "HOE2"] = place(g("CZ"), g("CE2"), g("OE2"), 0.960, 113.0, 0.0)
             X["RES", "HH"] = place(g("CE1"), g("CZ"), g("OH"), 0.960, 113.0, 0.0)
         else:                   # 4-OH donates to the 3-O, 3-OH points away
             X["RES", "HH"] = place(g("CE2"), g("CZ"), g("OH"), 0.960, 113.0, 0.0)
             X["RES", "HOE2"] = place(g("CD2"), g("CE2"), g("OE2"), 0.960, 113.0, 0.0)
+    if resname == "TOP":        # 2-OH (on CD1, para to the 5-OH), H towards CE1 (e) or CG (g)
+        X["RES", "OD1"] = place(g("CB"), g("CG"), g("CD1"), 1.360, 120.0, 0.0)
+        ref = g("CE1") if pattern.endswith("e") else g("CG")
+        X["RES", "HOD1"] = place(ref, g("CD1"), g("OD1"), 0.960, 113.0, 0.0)
 
-    res_order = [n for n, _ in DAH_TYPES] if resname == "DAH" else list(TYR_FF99SB)
+    res_order = [n for n, _ in RESIDUES[resname]["types"]] if resname in RESIDUES else list(TYR_FF99SB)
     order = ([("ACE", n) for n in ("CH3", "HH31", "HH32", "HH33", "C", "O")]
              + [("RES", n) for n in res_order]
              + [("NME", n) for n in ("N", "H", "CH3", "HH31", "HH32", "HH33")])
@@ -447,36 +495,25 @@ def load_confs(meta, names):
     return confs
 
 
-def write_rtp_hdb(charges, ffdir):
-    lines = ["", "[ DAH ]", " ; L-3,4-dihydroxyphenylalanine (L-DOPA), RESP HF/6-31G*, see dopa/README.md",
-             " [ atoms ]"]
-    for k, (name, atype) in enumerate(DAH_TYPES, start=1):
+def write_rtp_hdb(resname, charges, ffdir):
+    """<resname>.rtp and <resname>.hdb (lower case) for appending to a GROMACS amber force field."""
+    d = RESIDUES[resname]
+    lines = ["", f"[ {resname} ]", f" ; {d['title']}, RESP HF/6-31G*, see dopa/README.md", " [ atoms ]"]
+    for k, (name, atype) in enumerate(d["types"], start=1):
         q = charges[name] if abs(charges[name]) >= 5e-6 else 0.0
         lines.append(f"  {name:>5s}  {atype:>4s}  {q:10.5f}  {k:3d}")
-    bonds = [("N", "H"), ("N", "CA"), ("CA", "HA"), ("CA", "CB"), ("CA", "C"), ("CB", "HB1"),
-             ("CB", "HB2"), ("CB", "CG"), ("CG", "CD1"), ("CG", "CD2"), ("CD1", "HD1"),
-             ("CD1", "CE1"), ("CE1", "HE1"), ("CE1", "CZ"), ("CZ", "OH"), ("CZ", "CE2"),
-             ("OH", "HH"), ("CE2", "OE2"), ("OE2", "HOE2"), ("CE2", "CD2"), ("CD2", "HD2"),
-             ("C", "O"), ("-C", "N")]
     lines.append(" [ bonds ]")
-    lines += [f"  {i:>5s}  {j:>5s}" for i, j in bonds]
-    impropers = [("-C", "CA", "N", "H"), ("CA", "+N", "C", "O"), ("CG", "CE2", "CD2", "HD2"),
-                 ("CZ", "CD2", "CE2", "OE2"), ("CD1", "CZ", "CE1", "HE1"),
-                 ("CG", "CE1", "CD1", "HD1"), ("CD1", "CD2", "CG", "CB"), ("CE1", "CE2", "CZ", "OH")]
+    lines += [f"  {i:>5s}  {j:>5s}" for i, j in d["bonds"]]
     lines.append(" [ impropers ]")
-    lines += ["  " + "  ".join(f"{x:>5s}" for x in imp) for imp in impropers]
-    Path(ffdir, "dah.rtp").write_text("\n".join(lines) + "\n")
+    lines += ["  " + "  ".join(f"{x:>5s}" for x in imp) for imp in d["impropers"]]
+    Path(ffdir, f"{resname.lower()}.rtp").write_text("\n".join(lines) + "\n")
+    Path(ffdir, f"{resname.lower()}.hdb").write_text("\n".join([f"{resname}\t{len(d['hdb'])}"] + d["hdb"]) + "\n")
 
-    hdb = ["DAH\t8",
-           "1\t1\tH\tN\t-C\tCA",
-           "1\t5\tHA\tCA\tN\tCB\tC",
-           "2\t6\tHB\tCB\tCA\tCG",
-           "1\t1\tHD1\tCD1\tCG\tCE1",
-           "1\t1\tHE1\tCE1\tCD1\tCZ",
-           "1\t2\tHH\tOH\tCZ\tCE1",
-           "1\t2\tHOE2\tOE2\tCE2\tCZ",
-           "1\t1\tHD2\tCD2\tCG\tCE2"]
-    Path(ffdir, "dah.hdb").write_text("\n".join(hdb) + "\n")
+
+def cmd_list(args):
+    for name, (resname, _, _) in CONFORMERS.items():
+        if not args.res or resname == args.res.upper():
+            print(name)
 
 
 def cmd_fit(args):
@@ -487,24 +524,31 @@ def cmd_fit(args):
             continue
         m["dir"] = f.parent
         meta[m["name"]] = m
-    missing = set(CONFORMERS) - set(meta)
-    if missing:
-        raise SystemExit(f"ERROR: conformers missing in {args.workdir}: {sorted(missing)}")
+    # fit every residue whose conformers are all present; Tyr is required
+    residues = []
+    for res in ["TYR"] + list(RESIDUES):
+        names = [n for n, v in CONFORMERS.items() if v[0] == res]
+        have = [n for n in names if n in meta]
+        if len(have) == len(names):
+            residues.append(res)
+        elif have or res == "TYR":
+            raise SystemExit(f"ERROR: {res} conformers missing in {args.workdir}: {sorted(set(names) - set(have))}")
+    if len(residues) < 2:
+        raise SystemExit(f"ERROR: no modified residue with complete QM data in {args.workdir}")
     out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
     report = [f"HF/6-31G* (Cartesian d), MK shells {SHELLS} x vdW, {DENSITY} points/A^2, "
               "two-stage RESP a = 0.0005/0.001, b = 0.1", ""]
 
     fitted = {}
-    for resname in ("TYR", "DAH"):
-        names = [k for k, v in meta.items() if v["resname"] == resname]
+    for resname in residues:
+        names = [k for k, v in CONFORMERS.items() if v[0] == resname]
         atoms = [tuple(a) for a in meta[names[0]]["atoms"]]
         confs = load_confs(meta, names)
         fitted[resname], err = two_stage_resp(atoms, confs, SYMMETRY[resname])
         report.append(f"== {resname}: conformers {', '.join(names)}")
         report += [f"   RRMS {nm}: {e:.4f}  ({len(c[1])} points)" for nm, e, c in zip(names, err, confs)]
 
-    dah_names = [n for n, _ in DAH_TYPES]
     tyr = round_neutral(fitted["TYR"], list(TYR_FF99SB))
     report.append("\n== Check: TYR refit vs ff99SB")
     report.append(f"   {'atom':5s} {'fit':>8s} {'ff99SB':>8s} {'diff':>8s}")
@@ -512,40 +556,50 @@ def cmd_fit(args):
         report.append(f"   {k:5s} {tyr[k]:8.4f} {ref:8.4f} {tyr[k] - ref:8.4f}")
     dev = max(abs(tyr[k] - v) for k, v in TYR_FF99SB.items())
     report.append(f"   max |diff| = {dev:.4f}")
+    (out / "tyr_refit_charges.json").write_text(json.dumps(tyr, indent=1))
 
-    # Tyr-referenced DAH charges: ff99SB Tyr + (DAH fit - Tyr fit) for the atoms
-    # both residues share; OE2/HOE2 from the DAH fit. The protocol difference to
-    # ff94 cancels, so WT (ff99SB Tyr) and DAH differ only by the modification.
-    # The leftover (Tyr-fit minus ff99SB charge of the replaced HE2) goes to CE2.
-    direct = round_neutral(fitted["DAH"], dah_names)
-    referenced = {k: (TYR_FF99SB[k] + fitted["DAH"][k] - fitted["TYR"][k]) if k in TYR_FF99SB
-                  else fitted["DAH"][k] for k in dah_names}
-    referenced["CE2"] -= sum(referenced.values())
-    referenced = round_neutral(referenced, dah_names, sink="CE2")
-    dah = referenced if args.scheme == "referenced" else direct
+    for resname in residues[1:]:
+        # Tyr-referenced charges: ff99SB Tyr + (fit - Tyr fit) for the atoms both
+        # residues share; the new O/H from the fit. The protocol difference to ff94
+        # cancels, so WT (ff99SB Tyr) and the modified residue differ only by the
+        # modification. For each replaced Tyr H, (Tyr fit - ff99SB) of that H is
+        # taken off its carbon, which makes the residue exactly neutral again.
+        d = RESIDUES[resname]
+        names = [n for n, _ in d["types"]]
+        direct = round_neutral(fitted[resname], names)
+        referenced = {k: (TYR_FF99SB[k] + fitted[resname][k] - fitted["TYR"][k]) if k in TYR_FF99SB
+                      else fitted[resname][k] for k in names}
+        for h, c in d["replaced"].items():
+            referenced[c] -= fitted["TYR"][h] - TYR_FF99SB[h]
+        sink = next(iter(d["replaced"].values()))
+        referenced[sink] -= sum(referenced.values())          # numerical rest only
+        referenced = round_neutral(referenced, names, sink=sink)
+        used = referenced if args.scheme == "referenced" else direct
+        tag = resname.lower()
 
-    report.append(f"\n== DAH charges, scheme '{args.scheme}' is written to dah.rtp "
-                  f"(residue sum = {sum(dah.values()):.4f})")
-    report.append(f"   {'atom':5s} {'type':4s} {'direct':>8s} {'tyr-ref':>8s} {'TYR ff':>8s}")
-    for name, atype in DAH_TYPES:
-        ref = TYR_FF99SB.get(name)
-        refs = f"{ref:8.4f}" if ref is not None else f"{'-':>8s}"
-        report.append(f"   {name:5s} {atype:4s} {direct[name]:8.4f} {referenced[name]:8.4f} {refs}")
+        report.append(f"\n== {resname} ({d['title']}) charges, scheme '{args.scheme}' is written to "
+                      f"{tag}.rtp (residue sum = {sum(used.values()):.4f})")
+        report.append(f"   {'atom':5s} {'type':4s} {'direct':>8s} {'tyr-ref':>8s} {'TYR ff':>8s}")
+        for name, atype in d["types"]:
+            ref = TYR_FF99SB.get(name)
+            refs = f"{ref:8.4f}" if ref is not None else f"{'-':>8s}"
+            report.append(f"   {name:5s} {atype:4s} {direct[name]:8.4f} {referenced[name]:8.4f} {refs}")
+        (out / f"{tag}_charges.json").write_text(json.dumps(used, indent=1))
+        (out / f"{tag}_charges_direct.json").write_text(json.dumps(direct, indent=1))
+        (out / f"{tag}_charges_tyr_referenced.json").write_text(json.dumps(referenced, indent=1))
+        write_rtp_hdb(resname, used, args.ffdir)
 
     text = "\n".join(report)
     print(text)
     (out / "resp_report.txt").write_text(text + "\n")
-    (out / "dah_charges.json").write_text(json.dumps(dah, indent=1))
-    (out / "dah_charges_direct.json").write_text(json.dumps(direct, indent=1))
-    (out / "dah_charges_tyr_referenced.json").write_text(json.dumps(referenced, indent=1))
-    (out / "tyr_refit_charges.json").write_text(json.dumps(tyr, indent=1))
-    write_rtp_hdb(dah, args.ffdir)
-    print(f"\nwrote {out}/resp_report.txt, dah_charges*.json and {args.ffdir}/dah.rtp, dah.hdb")
+    print(f"\nwrote {out}/resp_report.txt and rtp/hdb for {', '.join(residues[1:])} in {args.ffdir}")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("list")
+    p.add_argument("--res", help="only conformers of this residue (TYR, DAH, TOP)")
     p = sub.add_parser("build")
     p.add_argument("--outdir", required=True)
     p.add_argument("--only", choices=list(CONFORMERS), help="build a single conformer")
@@ -559,9 +613,9 @@ def main():
     p.add_argument("--outdir", required=True)
     p.add_argument("--ffdir", required=True)
     p.add_argument("--scheme", choices=("referenced", "direct"), default="referenced",
-                   help="DAH charges written to dah.rtp: Tyr-referenced (default) or direct RESP fit")
+                   help="charges written to the rtp files: Tyr-referenced (default) or direct RESP fit")
     args = ap.parse_args()
-    {"build": cmd_build, "qm": cmd_qm, "fit": cmd_fit}[args.cmd](args)
+    {"list": cmd_list, "build": cmd_build, "qm": cmd_qm, "fit": cmd_fit}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# make_ff.sh — create a DOPA-enabled copy of a GROMACS force field.
+# make_ff.sh — create a copy of a GROMACS force field with the hydroxylated
+# tyrosines (every <res>.rtp/<res>.hdb in this directory: DAH, TOP, ...).
 #
 # Writes into DEST_DIR:
-#   <BASE_FF>-dopa.ff/   copy of BASE_FF with residue DAH (dah.rtp, dah.hdb) appended
-#   residuetypes.dat     GROMACS default + "DAH Protein"
+#   <BASE_FF>-dopa.ff/   copy of BASE_FF with the residues appended
+#   residuetypes.dat     GROMACS default + "<RES> Protein" for each residue
 #
 # GROMACS searches the working directory first, so pdb2gmx/grompp/analysis
 # tools run in DEST_DIR pick up both files.
@@ -24,8 +25,8 @@ DEST="$3"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FF="${DEST}/${BASE_FF}-dopa.ff"
 
-for f in "${TOPDIR}/${BASE_FF}.ff/aminoacids.rtp" "${TOPDIR}/residuetypes.dat" \
-         "${HERE}/dah.rtp" "${HERE}/dah.hdb"; do
+RTPS=( "${HERE}"/*.rtp )
+for f in "${TOPDIR}/${BASE_FF}.ff/aminoacids.rtp" "${TOPDIR}/residuetypes.dat" "${RTPS[@]}"; do
   if [ ! -s "$f" ]; then
     echo "ERROR: missing $f" >&2
     exit 1
@@ -36,16 +37,22 @@ mkdir -p "${DEST}"
 rm -rf "${FF}"
 cp -r "${TOPDIR}/${BASE_FF}.ff" "${FF}"
 chmod -R u+w "${FF}"
+cp "${TOPDIR}/residuetypes.dat" "${DEST}/residuetypes.dat"
+chmod u+w "${DEST}/residuetypes.dat"
 
-cat "${HERE}/dah.rtp" >> "${FF}/aminoacids.rtp"
-cat "${HERE}/dah.hdb" >> "${FF}/aminoacids.hdb"
+names=()
+for rtp in "${RTPS[@]}"; do
+  hdb="${rtp%.rtp}.hdb"
+  [ -s "${hdb}" ] || { echo "ERROR: missing ${hdb}" >&2; exit 1; }
+  res=$(awk '/^\[ *[A-Z0-9]+ *\]/ { gsub(/[][ ]/, ""); print; exit }' "${rtp}")
+  cat "${rtp}" >> "${FF}/aminoacids.rtp"
+  cat "${hdb}" >> "${FF}/aminoacids.hdb"
+  grep -q "^${res}[[:space:]]" "${DEST}/residuetypes.dat" || printf '%s\tProtein\n' "${res}" >> "${DEST}/residuetypes.dat"
+  names+=("${res}")
+done
 {
-  echo "${BASE_FF} + L-DOPA (DAH, RESP charges, see dopa/README.md)"
+  echo "${BASE_FF} + hydroxylated Tyr (${names[*]}; RESP charges, see dopa/README.md)"
   tail -n +2 "${TOPDIR}/${BASE_FF}.ff/forcefield.doc"
 } > "${FF}/forcefield.doc"
 
-cp "${TOPDIR}/residuetypes.dat" "${DEST}/residuetypes.dat"
-chmod u+w "${DEST}/residuetypes.dat"
-grep -q '^DAH[[:space:]]' "${DEST}/residuetypes.dat" || printf 'DAH\tProtein\n' >> "${DEST}/residuetypes.dat"
-
-echo "Created ${FF} and ${DEST}/residuetypes.dat"
+echo "Created ${FF} (${names[*]}) and ${DEST}/residuetypes.dat"

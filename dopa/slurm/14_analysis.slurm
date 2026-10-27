@@ -10,7 +10,8 @@
 #SBATCH --mail-type=none
 
 # Post-process every replica (whole protein, centered; reference frame;
-# side-chain SASA of the mutation site) and compare all systems.
+# side-chain SASA of every site in DOPA_SITES) and compare, per site, the
+# wild type with all systems modified at that site (runs/dopa/analysis/site<N>).
 
 set -euo pipefail
 
@@ -30,21 +31,35 @@ for SYSTEM in ${DOPA_SYSTEMS}; do
       continue
     fi
     echo "=== ${SYSTEM}/rep${r}"
-    cd "${DOPA_RUNS}/${SYSTEM}"      # residuetypes.dat with DAH lives here
+    cd "${DOPA_RUNS}/${SYSTEM}"      # residuetypes.dat with DAH/TOP lives here
     echo Protein | gmx1 convert-tpr -s "rep${r}/md.tpr" -n index.ndx -o "rep${r}/md_protein.tpr"
     echo Protein | gmx1 trjconv -s "rep${r}/md.tpr" -f "rep${r}/npt.gro" -n index.ndx \
       -o "rep${r}/protein_ref.gro" -pbc mol
     printf 'Protein\nProtein\n' | gmx1 trjconv -s "rep${r}/md_protein.tpr" -f "rep${r}/md.xtc" \
       -o "rep${r}/md_center.xtc" -pbc mol -center
-    gmx1 sasa -s "rep${r}/md_protein.tpr" -f "rep${r}/md_center.xtc" -surface all \
-      -output "resnr ${DOPA_MUT} and not name N H CA HA C O" \
-      -o "rep${r}/sasa_res${DOPA_MUT}.xvg"
+    for SITE in ${DOPA_SITES}; do
+      gmx1 sasa -s "rep${r}/md_protein.tpr" -f "rep${r}/md_center.xtc" -surface all \
+        -output "resnr ${SITE} and not name N H CA HA C O" \
+        -o "rep${r}/sasa_res${SITE}.xvg"
+    done
   done
 done
 
-echo
-echo "=== Comparison"
-python3 "${SSI_ROOT}/dopa/src/analyze_dopa.py" \
-  --runs "${DOPA_RUNS}" --systems ${DOPA_SYSTEMS} --nrep "${DOPA_NREP}" \
-  --first "${DOPA_FIRST}" --last "${DOPA_LAST}" --mut "${DOPA_MUT}" \
-  --skip-ns "${DOPA_SKIP_NS}" --out "${DOPA_RUNS}/analysis"
+for SITE in ${DOPA_SITES}; do
+  GROUP="wt"
+  for s in ${DOPA_SYSTEMS}; do
+    [ "$s" = "wt" ] && continue
+    read -r site _ _ < <(python3 "${SSI_ROOT}/dopa/src/make_system_pdb.py" --parse "$s" --default-mut "${DOPA_MUT}")
+    [ "$site" = "$SITE" ] && GROUP+=" $s"
+  done
+  [ "$GROUP" = "wt" ] && continue
+  PARTNERS=""
+  for c in ${DOPA_CLUSTER}; do [ "$c" != "$SITE" ] && PARTNERS+=" $c"; done
+  HELIX=$(echo "${DOPA_SITE_HELIX:-}" | tr ' ' '\n' | awk -F= -v s="${SITE}" '$1 == s {print $2}')
+  echo
+  echo "=== Comparison for site ${SITE}: ${GROUP}"
+  python3 "${SSI_ROOT}/dopa/src/analyze_dopa.py" \
+    --runs "${DOPA_RUNS}" --systems ${GROUP} --nrep "${DOPA_NREP}" \
+    --first "${DOPA_FIRST}" --last "${DOPA_LAST}" --mut "${SITE}" --partners ${PARTNERS} \
+    ${HELIX:+--helix "${HELIX}"} --skip-ns "${DOPA_SKIP_NS}" --out "${DOPA_RUNS}/analysis/site${SITE}"
+done
