@@ -276,6 +276,27 @@ for SUMMARY in "${DOPA_RUNS}"/analysis/site*/summary.tsv; do
       }
     }' "$SUMMARY"
 done
+# exposure of the reactive Tyr atoms vs. the paper, Tyr-Tyr pairs that come close
+for TVP in "${DOPA_RUNS}"/analysis/tyr_exposure/*/tyr_vs_paper.tsv; do
+  [ -z "$DETAIL" ] && [ -s "$TVP" ] || continue
+  n_summary=$((n_summary + 1))
+  echo
+  echo "▶ Tyr exposure $(basename "$(dirname "$TVP")")  (${TVP#${ROOT}/}, $(date -r "$TVP" '+%d.%m. %H:%M'))"
+  echo "    ASA (Å²) paper → MD mean (fraction of time > 1 Å²); ND/HD (%) at ONOO⁻:Y 5:1"
+  awk -F'\t' '
+    function f1(x) { return (x == "NA" ? "NA" : sprintf("%.1f", x)) }
+    function cell(p, m, a) { return sprintf("%s→%s (%.2f)", f1(p), f1(m), a) }
+    BEGIN { printf "    %-5s %5s %5s  %-22s %-22s %-22s\n", "Tyr", "ND", "HD", "O", "ortho CE1+CE2", "meta CD1+CD2" }
+    /^#/ || $1 == "tyr" { next }
+    { printf "    Y%-4s %5s %5s  %-22s %-22s %-22s\n", $1, f1($3), f1($5),
+        cell($9, $10, $11), cell($12, $13, $14), cell($15, $16, $17) }' "$TVP"
+  PAIRS="$(dirname "$TVP")/pairs.tsv"
+  [ -s "$PAIRS" ] && awk -F'\t' '
+    /^#/ || $1 == "pair" { next }
+    $9 + 0 < 8 { p = $1; sub("-", "–Y", p)
+      printf "    Y%-11s ortho C···C %4.1f Å, ≤ 4.5 Å in %3.0f %% of frames  (cross-link: %s, NMR contact: %s)\n",
+             p, $9, 100 * $12, $2, $4 }' "$PAIRS"
+done
 if [ -z "$DETAIL" ] && [ "$n_summary" -eq 0 ]; then
   echo
   echo "▶ Analysis  ${ast:--}"

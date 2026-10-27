@@ -12,6 +12,8 @@
 # Post-process every replica (whole protein, centered; reference frame;
 # side-chain SASA of every site in DOPA_SITES) and compare, per site, the
 # wild type with all systems modified at that site (runs/dopa/analysis/site<N>).
+# Then the time-resolved exposure of the reactive Tyr atoms and the Tyr-Tyr
+# contacts of DOPA_EXPOSURE_SYSTEMS vs. the paper (runs/dopa/analysis/tyr_exposure).
 
 set -euo pipefail
 
@@ -63,3 +65,11 @@ for SITE in ${DOPA_SITES}; do
     --first "${DOPA_FIRST}" --last "${DOPA_LAST}" --mut "${SITE}" --partners ${PARTNERS} \
     ${HELIX:+--helix "${HELIX}"} --skip-ns "${DOPA_SKIP_NS}" --out "${DOPA_RUNS}/analysis/site${SITE}"
 done
+
+# exposure of the reactive Tyr atoms and Tyr-Tyr contacts vs. the paper (Table 1, modification degrees)
+echo
+echo "=== Tyrosine exposure and Tyr-Tyr contacts: ${DOPA_EXPOSURE_SYSTEMS:-wt}"
+python3 "${SSI_ROOT}/dopa/src/tyr_exposure.py" static --pdb "${DOPA_SRC_PDB}"
+python3 "${SSI_ROOT}/dopa/src/tyr_exposure.py" md \
+  --runs "${DOPA_RUNS}" --systems ${DOPA_EXPOSURE_SYSTEMS:-wt} --nrep "${DOPA_NREP}" \
+  --skip-ns "${DOPA_SKIP_NS}" --out "${DOPA_RUNS}/analysis/tyr_exposure"

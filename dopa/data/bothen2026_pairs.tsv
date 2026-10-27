@@ -1,0 +1,15 @@
+# Tyr-Tyr pairs in domain 1 (residues 34-144): dityrosine cross-links named in the main text of
+# Bothen et al. 2026 (section 2.4) and NMR contacts of Y65 (Maglio et al. 2002, Phl p 5 31-140).
+# crosslink: yes = named in the text; NA = not named there (the full list of 14 cross-links is in Fig. 5c / Table S5).
+# persists: cross-link PSMs do not decrease from 3:1 to 5:1 (argued to be intramolecular).
+pair	crosslink	persists	nmr_contact
+65-108	NA	NA	NA
+65-112	NA	NA	yes
+65-124	yes	yes	yes
+65-127	yes	yes	yes
+108-112	NA	NA	NA
+108-124	NA	NA	NA
+108-127	NA	NA	NA
+112-124	NA	NA	NA
+112-127	NA	NA	NA
+124-127	NA	NA	NA

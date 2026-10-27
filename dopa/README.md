@@ -10,7 +10,9 @@ wild-type reference.
 
 **Contents:** [Background](#background) ·
 [Workflow: what happens and why](#workflow-what-happens-and-why) ·
-[Design decisions](#design-decisions) · [DOPA parameters](#dopa-parameters) ·
+[Design decisions](#design-decisions) ·
+[Tyr exposure vs. the paper](#reactive-atom-exposure-and-tyrtyr-contacts-wt-vs-paper) ·
+[DOPA parameters](#dopa-parameters) ·
 [Running on Viper](#running-on-viper) ·
 [Outputs and interpretation](#outputs-and-interpretation) ·
 [Limitations](#limitations) · [Files](#files) · [References](#references)
@@ -80,7 +82,7 @@ flowchart TD
 | **4e** NPT 1 ns, restrained | pressure coupling to 1 bar, still restrained | box volume and water density must settle before the protein is released | `12_setup.slurm` | → `rep*/npt.gro`, `rep*/md.tpr` | ~10–30 min |
 | **5** Benchmark | 20 000 steps of production | real ns/day on Viper → how many 12 h jobs production needs | `13_production.slurm SYSTEM bench` | → `rep*/bench.log` | ~10 min |
 | **6** Production | 300 ns unrestrained NPT per replica, 4 replicas in one node job; continues from checkpoints and resubmits itself every 12 h | only unrestrained dynamics shows structural change; 4 independent replicas give error bars | `13_production.slurm` | → `rep*/md.xtc` (protein every 10 ps) | 1 node per system; days (see benchmark) |
-| **7** Analysis | whole/centered protein trajectories, side-chain SASA, then the comparison WT vs. DOPA | turns trajectories into numbers with mean ± SEM over replicas | `14_analysis.slurm`, `src/analyze_dopa.py` | → `runs/dopa/analysis/` | 1 node-share, < 1 h |
+| **7** Analysis | whole/centered protein trajectories, side-chain SASA, then the comparison WT vs. DOPA; exposure of the reactive Tyr atoms and Tyr–Tyr contacts in the WT vs. the paper | turns trajectories into numbers with mean ± SEM over replicas | `14_analysis.slurm`, `src/analyze_dopa.py`, `src/tyr_exposure.py` | → `runs/dopa/analysis/` | 1 node-share, ~1 h |
 
 ---
 
@@ -171,6 +173,80 @@ goes from 3.87 Å to the equilibrium value and all angle/dihedral terms across
 the link are switched on (λ 0 → 1 over 200 ps NVT, `mdp/grow.mdp`), with
 residues within 0.6 nm of the two rings unrestrained. The setup then checks
 the bridge length after minimization and continues as for the other systems.
+
+---
+
+## Reactive-atom exposure and Tyr–Tyr contacts (WT vs. paper)
+
+**Why.** The paper explains the site selectivity with the atom-level ASA of
+one relaxed structure (Table 1) and notes that transient exposure is
+underrepresented that way: Y108 is nitrated more than its static
+accessibility predicts, and Y127 is modified although buried at residue level.
+The four WT replicas show how these exposures fluctuate, and how often two
+tyrosines come close enough to couple.
+
+**What** (`src/tyr_exposure.py`, last part of `14_analysis.slurm`), for the
+tyrosines of domain 1 (Y65, Y108, Y112, Y124, Y127), every 50 ps:
+
+| Quantity | Stands for |
+|----------|------------|
+| ASA of the phenolic O | tyrosyl radical formation (one-electron oxidation, mainly by CO₃·⁻) |
+| ASA of the ortho carbons CE1, CE2 | ·NO₂ addition (nitration), C–C coupling (3,3'-dityrosine) |
+| ASA of the meta carbons CD1, CD2 | ·OH addition (hydroxylation; also at the ortho carbons) |
+| RSA (residue ASA / 217.67 Å², as in the paper) | residue-level burial |
+| per Tyr pair: shortest ortho···ortho C···C, shortest ortho C···O, ring-centroid distance | geometric precondition for intramolecular C–C or C–O (isodityrosine) coupling; fraction of frames ≤ 4.5 Å |
+
+Ring flips swap the positions of CE1/CE2 (and CD1/CD2), and LC-MS/MS does
+not tell the two ring edges apart either, so the summary also reports
+ortho = CE1 + CE2 and meta = CD1 + CD2 (accessible = either carbon). The
+thresholds follow the paper: < 1 Å² buried, ≥ 5 Å² partially exposed (Singh
+et al. 2006, as used there).
+
+**Method.** Shrake–Rupley (960 points per atom), heavy atoms with united-atom
+radii (Chothia 1976, the NACCESS defaults), probe 1.4 Å. That is the kind of
+calculation SurfaceRacer did in the paper (analytically). The analysis log starts with
+`tyr_exposure.py static` on the AF3 model: RSA within 0.05 of Table 1 for 9
+of 12 tyrosines, atom ASA with an RMS deviation of 5.6 Å². The paper used the
+model after a 2 ns restrained relaxation, so single atoms differ, most of all
+exposed OH groups (e.g. Y112 O 35 vs. 21 Å²). With explicit hydrogens the
+ring carbons come out far smaller than in Table 1 (Y124 CE1 3 vs. 16 Å²), so
+Table 1 is heavy-atom ASA, and so is this analysis. For "static vs. dynamic"
+compare with `md_start` (same method, first production frame); Table 1 is
+listed for orientation.
+
+**Reference data.** `data/bothen2026_tyr.tsv` holds Table 1 and the
+modification degrees at ONOO⁻:Y = 5:1 that the main text states. The
+missing ones (`NA`: ND of Y108, Y124, Y127, HD of Y108; numbers in Tables
+S3/S4 of the SI) can be filled in and the summary rebuilt without new SASA
+calculations:
+
+```bash
+python3 dopa/src/tyr_exposure.py md --runs runs/dopa --systems wt --nrep 4 \
+  --out runs/dopa/analysis/tyr_exposure --reuse
+```
+
+`data/bothen2026_pairs.tsv` lists the cross-links named in the text (Y65–Y124
+and Y65–Y127, both persisting at the highest dose) and the NMR contacts of
+Y65 (Maglio et al. 2002). Set `DOPA_EXPOSURE_SYSTEMS` in `dopa.env` to
+include e.g. `dah_ce1 dah_ce2` to see whether DOPA65 changes the exposure of
+its neighbours.
+
+**How to read it.**
+
+- An atom that is buried in Table 1 but accessible in a sizeable fraction of
+  frames is a candidate for modification by transient exposure (e.g. Y108 O and CE1,
+  the Y127 ring carbons).
+- Does the MD exposure rank the five tyrosines more like ND and HD than the
+  static values do? With five residues this is a qualitative check, not a
+  correlation analysis.
+- Radical lifetimes (µs–ms) are long compared with side-chain fluctuations,
+  so the time-averaged accessibility matters more than a single snapshot.
+- Exposure is necessary but not sufficient: radical availability (CO₃·⁻ and
+  ·NO₂ dominate, ·OH is ~0.2 %), neighbouring charges and the protein
+  environment of the radical also decide.
+- Only domain 1 is simulated (the other seven tyrosines are not in the
+  system), and the runs describe the unmodified protein. Once Y65 is
+  nitrated, its surroundings change.
 
 ---
 
@@ -342,6 +418,12 @@ replicas. Results go to `runs/dopa/analysis/`:
 | `contacts.tsv` | side-chain contact occupancy of residue 65 (≥ 5 % in any system) |
 | `hbonds.tsv` | H-bonds of the OH groups of residue 65 (donor and acceptor) |
 | `rmsf_helicity.png`, `rmsd_time.png`, `chi1_chi2.png` | overview plots |
+| `tyr_exposure/<system>/exposure.tsv` | per Tyr and atom (O, CE1, CE2, CD1, CD2, ortho, meta, RSA): Table 1, MD start, MD mean ± SEM, fraction of time > 1 Å² and > 5 Å² |
+| `tyr_exposure/<system>/tyr_vs_paper.tsv` | one row per Tyr: ND and HD (5:1) next to static and MD exposure |
+| `tyr_exposure/<system>/pairs.tsv` | Tyr–Tyr distances, fraction of frames with ortho···ortho / ortho···O ≤ 4.5 Å, cross-links and NMR contacts from the paper |
+| `tyr_exposure/<system>/frames_rep*.tsv` | per-frame values (input for `--reuse`) |
+| `tyr_exposure/<system>/exposure_bfac.pdb` | start structure; Tyr atoms with MD mean ASA as B-factor and fraction of time accessible as occupancy (for PyMOL) |
+| `tyr_exposure/<system>/*.png` | ASA time series, distributions vs. Table 1, exposure vs. ND/HD, ortho···ortho distances over time |
 
 | Metric | What it tells | A DOPA effect would look like |
 |--------|---------------|-------------------------------|
@@ -388,9 +470,16 @@ dopa/
 ├── ff/
 │   ├── make_ff.sh            DOPA-enabled copy of a GROMACS force field
 │   └── dah.rtp, dah.hdb      residue template (after step 2)
+├── data/
+│   ├── bothen2026_tyr.tsv    Table 1 + modification degrees of the paper
+│   └── bothen2026_pairs.tsv  cross-links and NMR contacts in domain 1
 ├── src/
 │   ├── make_system_pdb.py    domain + caps + DOPA variants
-│   └── analyze_dopa.py       replica-based comparison
+│   ├── crosslink_topology.py dityrosine bond growth topologies
+│   ├── analyze_dopa.py       replica-based comparison
+│   ├── tyr_exposure.py       reactive-atom exposure and Tyr–Tyr contacts vs. the paper
+│   ├── monitor_conv.py       convergence part of dopa_monitor.sh
+│   └── amberff.py            amber force-field terms (torsion fit)
 ├── mdp/                      em, nvt, npt, md
 └── slurm/                    10_resp_qm … 14_analysis
 ```
@@ -402,6 +491,7 @@ dopa/
 Chemistry and system
 - Bothen, N.; Klimach, T.; Munk, V. K.; Backes, A. T.; Berkemeier, T.; Weller, M. G. et al., *Free Radic. Res.* 2026, doi:10.1080/10715762.2026.2752377
 - Göbl, C. et al., *J. Allergy Clin. Immunol.* 2017 (Phl p 5 domain structure by NMR)
+- Maglio, O. et al., *Protein Eng.* 2002, 15, 635 (NMR of Phl p 5 31–140, Tyr contacts)
 - Abramson, J. et al., *Nature* 2024, 630, 493 (AlphaFold 3)
 - Lee, B. P.; Messersmith, P. B.; Israelachvili, J. N.; Waite, J. H., *Annu. Rev. Mater. Res.* 2011, 41, 99 (DOPA chemistry)
 
@@ -422,5 +512,7 @@ Simulation and analysis
 - Grossfield et al., *Living J. Comput. Mol. Sci.* 2018, 1, 5067 (uncertainty)
 - Weininger et al., *Biochemistry* 2014, 53, 4519 (ring flips)
 - Kabsch, Sander, *Biopolymers* 1983, 22, 2577 (DSSP)
+- Shrake, Rupley, *J. Mol. Biol.* 1973, 79, 351 (ASA by test points); Chothia, *J. Mol. Biol.* 1976, 105, 1 (radii); Tsai et al., *J. Mol. Biol.* 1999, 290, 253 (ProtOr radii)
+- Tsodikov, Record, Sergeev, *J. Comput. Chem.* 2002, 23, 600 (SurfaceRacer, used in the paper)
 - Gapsys et al., *Angew. Chem. Int. Ed.* 2016, 55, 7364 (ΔΔG by free-energy calculations)
 - Hollingsworth, Dror, *Neuron* 2018, 99, 1129 (introduction to MD)
