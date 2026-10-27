@@ -68,33 +68,16 @@ python3 "${SSI_ROOT}/dopa/src/make_system_pdb.py" \
   --mut "${DOPA_MUT}" --variant "${SYSTEM}"
 
 echo
-echo "[3] pdb2gmx (ACE/NME caps -> termini 'None')"
-run_pdb2gmx() {
-  gmx1 pdb2gmx -f start.pdb -o processed.gro -p topol.top -i posre.itp \
-    -ff "${DOPA_BASE_FF}-dopa" -water "${DOPA_WATER}" -ignh "$@"
-}
-none_index() {   # none_index LOG start|end -> menu number of the 'None' terminus
-  awk -v which="$2" '$0 ~ "Select " which " terminus" {f=1; next}
-                     f && /^ *[0-9]+: *None/ {sub(":", "", $1); print $1; exit}' "$1"
-}
-# probe run only to read the terminus menus (the answers 0/0 are discarded)
-printf '0\n0\n' | run_pdb2gmx -ter > pdb2gmx_menu.log 2>&1 || true
-TER_N=$(none_index pdb2gmx_menu.log start)
-TER_C=$(none_index pdb2gmx_menu.log end)
-if [ -n "${TER_N}" ] && [ -z "${TER_C}" ]; then
-  printf '%s\n0\n' "${TER_N}" | run_pdb2gmx -ter > pdb2gmx_menu.log 2>&1 || true
-  TER_C=$(none_index pdb2gmx_menu.log end)
-fi
-if [ -n "${TER_N}" ] && [ -n "${TER_C}" ]; then
-  echo "Terminus menu choices: start=${TER_N} end=${TER_C}"
-  printf '%s\n%s\n' "${TER_N}" "${TER_C}" | run_pdb2gmx -ter > pdb2gmx.log 2>&1
-else
-  echo "No terminus menu with 'None' found; using pdb2gmx defaults for the caps"
-  run_pdb2gmx > pdb2gmx.log 2>&1
-fi
-grep -E "(Start|End) terminus" pdb2gmx.log || true
-if ! grep -qE "Start terminus.*: *None" pdb2gmx.log || ! grep -qE "End terminus.*: *None" pdb2gmx.log; then
-  echo "ERROR: caps did not get terminus type 'None', see ${SYS_DIR}/pdb2gmx.log"
+echo "[3] pdb2gmx (ACE/NME caps, no charged termini)"
+# pdb2gmx recognizes ACE/NME as capping residues and adds no NH3+/COO- termini
+gmx1 pdb2gmx -f start.pdb -o processed.gro -p topol.top -i posre.itp \
+  -ff "${DOPA_BASE_FF}-dopa" -water "${DOPA_WATER}" -ignh > pdb2gmx.log 2>&1
+grep -E "Identified residue|Total charge" pdb2gmx.log || true
+N_CHARGED_TER=$(awk 'NR>2 { a=substr($0,11,5); gsub(/ /,"",a); if (a ~ /^(H1|H2|H3|OC1|OC2|OXT)$/) n++ } END{print n+0}' processed.gro)
+if ! grep -q "Identified residue ACE.* as a starting terminus" pdb2gmx.log || \
+   ! grep -q "Identified residue NME.* as a ending terminus" pdb2gmx.log || \
+   [ "${N_CHARGED_TER}" -ne 0 ]; then
+  echo "ERROR: caps not recognized or charged termini added (${N_CHARGED_TER} atoms), see ${SYS_DIR}/pdb2gmx.log"
   exit 1
 fi
 N_DAH=$(awk 'NR>2 && substr($0,6,5) ~ /^DAH/ {n++} END{print n+0}' processed.gro)

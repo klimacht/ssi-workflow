@@ -1,0 +1,59 @@
+
+[ DAH ]
+ ; L-3,4-dihydroxyphenylalanine (L-DOPA), RESP HF/6-31G*, see dopa/README.md
+ [ atoms ]
+      N     N    -0.41570    1
+      H     H     0.27190    2
+     CA    CT    -0.00760    3
+     HA    H1     0.10320    4
+     CB    CT    -0.04380    5
+    HB1    HC     0.04060    6
+    HB2    HC     0.04060    7
+     CG    CA     0.05010    8
+    CD1    CA    -0.28920    9
+    HD1    HA     0.18670   10
+    CE1    CA    -0.21040   11
+    HE1    HA     0.18380   12
+     CZ    CA     0.17250   13
+     OH    OH    -0.51840   14
+     HH    HO     0.39090   15
+    CE2    CA     0.28560   16
+    OE2    OH    -0.51150   17
+   HOE2    HO     0.37930   18
+    CD2    CA    -0.35520   19
+    HD2    HA     0.21720   20
+      C     C     0.59730   21
+      O     O    -0.56790   22
+ [ bonds ]
+      N      H
+      N     CA
+     CA     HA
+     CA     CB
+     CA      C
+     CB    HB1
+     CB    HB2
+     CB     CG
+     CG    CD1
+     CG    CD2
+    CD1    HD1
+    CD1    CE1
+    CE1    HE1
+    CE1     CZ
+     CZ     OH
+     CZ    CE2
+     OH     HH
+    CE2    OE2
+    OE2   HOE2
+    CE2    CD2
+    CD2    HD2
+      C      O
+     -C      N
+ [ impropers ]
+     -C     CA      N      H
+     CA     +N      C      O
+     CG    CE2    CD2    HD2
+     CZ    CD2    CE2    OE2
+    CD1     CZ    CE1    HE1
+     CG    CE1    CD1    HD1
+    CD1    CD2     CG     CB
+    CE1    CE2     CZ     OH
