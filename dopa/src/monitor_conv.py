@@ -239,7 +239,10 @@ def main():
         if parts:
             print(f"    {rep.name:5s} " + "   ".join(parts))
     if any(energy.values()) or struct:
-        print(f"          (mean±SD over the last {args.window:g} ns of each replica)")
+        t_max = max([e[-1]["time"] / 1000.0 for e in energy.values() if e]
+                    + [s[-1, 0] for s in struct.values() if len(s)] + [0.0])
+        span = f"the last {args.window:g} ns" if t_max > args.window else "the whole run so far"
+        print(f"          (mean±SD over {span} of each replica)")
 
     if args.plot == "none":
         return
