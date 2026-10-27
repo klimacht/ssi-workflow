@@ -14,8 +14,7 @@
 
 set -euo pipefail
 
-source __SSI_ROOT__/config/workflow.env
-source "${SSI_ROOT}/dopa/dopa.env"
+source __SSI_ROOT__/dopa/bin/dopa_env.sh __SSI_ROOT__
 
 source "${SSI_ROOT}/bin/ssi_lib.sh"
 ssi_load_modules python

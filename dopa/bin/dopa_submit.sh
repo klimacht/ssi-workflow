@@ -13,8 +13,7 @@
 set -euo pipefail
 
 ROOT="__SSI_ROOT__"
-source "${ROOT}/config/workflow.env"
-source "${ROOT}/dopa/dopa.env"
+source "${ROOT}/dopa/bin/dopa_env.sh" "${ROOT}"
 
 STAGE="${1:-}"
 shift || true

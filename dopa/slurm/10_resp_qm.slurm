@@ -16,8 +16,7 @@
 
 set -euo pipefail
 
-source __SSI_ROOT__/config/workflow.env
-source "${SSI_ROOT}/dopa/dopa.env"
+source __SSI_ROOT__/dopa/bin/dopa_env.sh __SSI_ROOT__
 
 CONFS=(dah_alpha_a dah_alpha_b dah_beta_a dah_beta_b tyr_alpha tyr_beta)
 NAME="${CONFS[${SLURM_ARRAY_TASK_ID}]}"

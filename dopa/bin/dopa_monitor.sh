@@ -6,8 +6,7 @@
 #   watch -n 60 bash dopa/bin/dopa_monitor.sh
 
 ROOT="__SSI_ROOT__"
-source "${ROOT}/config/workflow.env" 2>/dev/null
-source "${ROOT}/dopa/dopa.env" 2>/dev/null
+source "${ROOT}/dopa/bin/dopa_env.sh" "${ROOT}" 2>/dev/null
 
 QM_CONFS=(dah_alpha_a dah_alpha_b dah_beta_a dah_beta_b tyr_alpha tyr_beta)
 QM_DIR="${DOPA_RUNS}/qm"

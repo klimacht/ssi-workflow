@@ -10,7 +10,7 @@ set -euo pipefail
 
 VENV="${1:?Usage: $0 VENV_DIR}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source "${ROOT}/config/workflow.env"
+source "${ROOT}/dopa/bin/dopa_env.sh" "${ROOT}"
 
 type module >/dev/null 2>&1 || source /etc/profile.d/modules.sh
 module purge
