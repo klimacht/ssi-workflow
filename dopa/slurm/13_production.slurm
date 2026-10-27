@@ -15,6 +15,9 @@
 #
 #   sbatch 13_production.slurm SYSTEM          production
 #   sbatch 13_production.slurm SYSTEM bench    20k-step benchmark (bench.log)
+#
+# --nodes=N (N = 1 or DOPA_NREP) spreads the replicas over N nodes; with one
+# node per replica each replica gets 128 cores. Resubmissions keep N.
 
 set -euo pipefail
 
@@ -49,10 +52,11 @@ echo "SLURM_CPUS_PER_TASK   = ${SLURM_CPUS_PER_TASK}"
 echo "============================================================"
 
 if [ "${MODE}" = "bench" ]; then
+  BENCH="bench_${SLURM_JOB_NUM_NODES}n"
   mpirun -np "${SLURM_NTASKS}" "${GMX}" mdrun -multidir "${REPS[@]}" \
-    -s md.tpr -deffnm bench -nsteps 20000 -resethway -noconfout \
+    -s md.tpr -deffnm "${BENCH}" -nsteps 20000 -resethway -noconfout \
     -ntomp "${SLURM_CPUS_PER_TASK}"
-  grep -H "Performance:" rep*/bench.log
+  grep -H "Performance:" rep*/"${BENCH}".log
   exit 0
 fi
 
@@ -86,4 +90,5 @@ if [ "${n_sub}" -ge "${MAX_RESUBMIT}" ]; then
 fi
 echo $((n_sub + 1)) > resubmit.count
 echo "${n_done}/${#REPS[@]} replicas finished; resubmitting (#$((n_sub + 1)))"
-sbatch -J "dopa_md_${SYSTEM}" "${SSI_ROOT}/dopa/slurm/13_production.slurm" "${SYSTEM}"
+sbatch -J "dopa_md_${SYSTEM}" --nodes="${SLURM_JOB_NUM_NODES}" \
+  "${SSI_ROOT}/dopa/slurm/13_production.slurm" "${SYSTEM}"

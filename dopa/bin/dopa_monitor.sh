@@ -175,12 +175,16 @@ for SYS in ${DETAIL:-${DOPA_SYSTEMS}}; do
     show_errors "$(last_log "dopa_setup_${SYS}.*.out")" "$(last_log "dopa_setup_${SYS}.*.err")"
   fi
 
-  # benchmark
-  if ls "${SD}"/rep*/bench.log >/dev/null 2>&1; then
-    perf=$(grep -h "^Performance:" "${SD}"/rep*/bench.log 2>/dev/null | awk '{s += $2; n++} END{if (n) printf "%.1f", s / n}')
-    bst="${J_STATE["dopa_bench_${SYS}"]:-}"
-    [ -n "$perf" ] && echo "    bench: ${perf} ns/day per replica" || echo "    bench: ${bst:-running}"
-  fi
+  # benchmarks (rep*/bench_<N>n.log, N nodes; plain bench.log = 1 node)
+  bench_line=""
+  for b in $(ls "${SD}"/rep1/bench*.log 2>/dev/null | xargs -n1 basename 2>/dev/null); do
+    perf=$(grep -h "^Performance:" "${SD}"/rep*/"$b" 2>/dev/null | awk '{s += $2; n++} END{if (n) printf "%.1f", s / n}')
+    nn=$(echo "$b" | sed -n 's/^bench_\([0-9]*\)n\.log$/\1/p'); nn="${nn:-1}"
+    bench_line+="  ${nn} node(s): ${perf:-running}"
+  done
+  bst="${J_STATE["dopa_bench_${SYS}"]:-}"
+  [ -n "$bst" ] && bench_line+="  (job ${bst})"
+  [ -n "$bench_line" ] && echo "    bench ns/day per replica:${bench_line}"
 
   if [ "$n_tpr" -gt 0 ]; then
   target_ps=$(awk -F= '/^nsteps/{n=$2} /^dt/{dt=$2} END{printf "%.0f", n * dt}' "${reps[0]}/mdout_md.mdp" 2>/dev/null)
