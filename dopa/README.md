@@ -194,11 +194,26 @@ Append `--dry-run` to see the `sbatch` calls without submitting.
 ### Monitoring
 
 `dopa_monitor.sh` gives one overview of all stages, in the style of
-`bin/monitor_pipeline.sh`; keep it running in the PuTTY window:
+`bin/monitor_pipeline.sh`, plus convergence numbers and gnuplot terminal
+plots; keep it running in the PuTTY window:
 
 ```bash
-watch -n 60 bash dopa/bin/dopa_monitor.sh
+watch -n 120 bash dopa/bin/dopa_monitor.sh       # all systems, RMSD plot each
+watch -n 120 bash dopa/bin/dopa_monitor.sh wt    # one system, all plots
+bash dopa/bin/dopa_monitor.sh --no-plots         # numbers only
 ```
+
+Per replica it prints mean ± SD over the last 10 ns: temperature and
+pressure (from the logs), box volume, Cα RMSD of the helical core (37–140)
+against the first production frame, radius of gyration and the Y65–Y112
+ring distance (from `md.xtc`, every 100 ps; cached in `rep*/.monitor/`, so a
+refresh only reads new frames). The detail view plots RMSD, ring distance,
+Rg, volume, potential energy and temperature over time, replicas drawn as
+`1`–`4`. Converged replicas show a flat RMSD plateau and stable energies;
+replicas that keep drifting or sit on different plateaus need more time
+before the averages mean anything.
+
+Example of the overview (production part):
 
 ```
 ==========================================================================

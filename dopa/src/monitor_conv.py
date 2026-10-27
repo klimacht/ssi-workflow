@@ -161,7 +161,7 @@ def fmt(stat, f="{:.2f}"):
     return (f + "±" + f).format(*stat)
 
 
-def gnuplot(series, title, ylabel, width, height):
+def gnuplot(series, title, width, height):
     """series: list of (label, x, y). Returns the dumb-terminal plot as text."""
     series = [(lab, x, y) for lab, x, y in series if len(x) > 1]
     if not series or not shutil.which("gnuplot"):
@@ -173,7 +173,7 @@ def gnuplot(series, title, ylabel, width, height):
         data.append(block + "\ne")
         plots.append(f"'-' using 1:2 with points pt '{lab}' notitle")
     script = (f"set terminal dumb size {width},{height}\n"
-              f"set title '{title}'\nset ylabel '{ylabel}'\nset xlabel 'ns'\n"
+              f"set title '{title}'\nset xlabel 'ns'\n"
               "set tics nomirror\nset border 3\n"
               "plot " + ", ".join(plots) + "\n" + "\n".join(data) + "\n")
     try:
@@ -261,17 +261,17 @@ def main():
     phases = "/".join(sorted(set(phase.values())))
     plots = []
     if struct:
-        plots.append((struct_series(1), f"Calpha RMSD core {args.core[0]}-{args.core[1]} (A), replicas 1-4", "A"))
+        plots.append((struct_series(1), f"Calpha RMSD core {args.core[0]}-{args.core[1]} (A), replicas 1-4"))
         if args.plot == "full":
-            plots.append((struct_series(3), f"ring distance {args.mut}-{args.partner} (A), replicas 1-4", "A"))
-            plots.append((struct_series(2), "radius of gyration Calpha (A), replicas 1-4", "A"))
-            plots.append((struct_series(4), "box volume (nm3), replicas 1-4", "nm3"))
+            plots.append((struct_series(3), f"ring distance {args.mut}-{args.partner} (A), replicas 1-4"))
+            plots.append((struct_series(2), "radius of gyration Calpha (A), replicas 1-4"))
+            plots.append((struct_series(4), "box volume (nm3), replicas 1-4"))
     if args.plot == "full" or not struct:
-        plots.append((energy_series("Potential", 1e-3), f"potential energy (MJ/mol), {phases}, replicas 1-4", "MJ/mol"))
+        plots.append((energy_series("Potential", 1e-3), f"potential energy (MJ/mol), {phases}, replicas 1-4"))
         if args.plot == "full":
-            plots.append((energy_series("Temperature"), f"temperature (K), {phases}, replicas 1-4", "K"))
-    for series, title, ylab in plots:
-        txt = gnuplot(series, title, ylab, width, h_big if args.plot == "full" else h_small)
+            plots.append((energy_series("Temperature"), f"temperature (K), {phases}, replicas 1-4"))
+    for series, title in plots:
+        txt = gnuplot(series, title, width, h_big if args.plot == "full" else h_small)
         if txt:
             print(txt)
 
