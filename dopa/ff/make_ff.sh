@@ -50,8 +50,12 @@ for rtp in "${RTPS[@]}"; do
   grep -q "^${res}[[:space:]]" "${DEST}/residuetypes.dat" || printf '%s\tProtein\n' "${res}" >> "${DEST}/residuetypes.dat"
   names+=("${res}")
 done
+# extra atom types and bonded types (dityrosine bridge carbon CP)
+for f in "${HERE}"/*.atp; do [ -s "$f" ] && cat "$f" >> "${FF}/atomtypes.atp"; done
+for f in "${HERE}"/*_nonbonded.itp; do [ -s "$f" ] && cat "$f" >> "${FF}/ffnonbonded.itp"; done
+for f in "${HERE}"/*_bonded.itp; do [ -s "$f" ] && cat "$f" >> "${FF}/ffbonded.itp"; done
 {
-  echo "${BASE_FF} + hydroxylated Tyr (${names[*]}; RESP charges, see dopa/README.md)"
+  echo "${BASE_FF} + hydroxylated/cross-linked Tyr (${names[*]}; RESP charges, see dopa/README.md)"
   tail -n +2 "${TOPDIR}/${BASE_FF}.ff/forcefield.doc"
 } > "${FF}/forcefield.doc"
 
