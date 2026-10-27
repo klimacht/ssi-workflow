@@ -1,12 +1,32 @@
 #!/usr/bin/env bash
-# Status overview of the DOPA study: RESP QM/fit, setup, production, analysis.
+# Status overview of the DOPA study: RESP QM/fit, setup, production, analysis,
+# with convergence numbers per replica and gnuplot terminal plots.
 #
 # Usage:
-#   bash dopa/bin/dopa_monitor.sh
-#   watch -n 60 bash dopa/bin/dopa_monitor.sh
+#   bash dopa/bin/dopa_monitor.sh                 all systems, RMSD plot per system
+#   bash dopa/bin/dopa_monitor.sh wt              one system, all convergence plots
+#   bash dopa/bin/dopa_monitor.sh --no-plots      numbers only
+#   watch -n 120 bash dopa/bin/dopa_monitor.sh
 
 ROOT="__SSI_ROOT__"
 source "${ROOT}/dopa/bin/dopa_env.sh" "${ROOT}" 2>/dev/null
+
+DETAIL=""; PLOTS=1
+for a in "$@"; do
+  case "$a" in
+    --no-plots) PLOTS=0 ;;
+    *)          DETAIL="$a" ;;
+  esac
+done
+
+# python (MDAnalysis) + gnuplot for the convergence part
+type module >/dev/null 2>&1 || source /etc/profile.d/modules.sh 2>/dev/null
+module load "${MODULE_PYTHON}" "${MODULE_GNUPLOT:-gnuplot/6.0}" >/dev/null 2>&1
+CONV=0; command -v python3 >/dev/null 2>&1 && CONV=1
+PLOT_MODE="none"
+if [ "$PLOTS" -eq 1 ] && command -v gnuplot >/dev/null 2>&1; then
+  [ -n "$DETAIL" ] && PLOT_MODE="full" || PLOT_MODE="compact"
+fi
 
 QM_CONFS=(dah_alpha_a dah_alpha_b dah_beta_a dah_beta_b tyr_alpha tyr_beta)
 QM_DIR="${DOPA_RUNS}/qm"
@@ -63,8 +83,9 @@ echo "  DOPA MD Monitor  |  ${NOW}  |  Y${DOPA_MUT} -> DOPA, domain ${DOPA_FIRST
 echo "=========================================================================="
 
 # ---------------------------------------------------------------------------
-# RESP: QM per conformer + fit
+# RESP: QM per conformer + fit (overview only)
 # ---------------------------------------------------------------------------
+if [ -z "$DETAIL" ]; then
 echo
 echo "▶ RESP charges (HF/6-31G*, PySCF)"
 for i in "${!QM_CONFS[@]}"; do
@@ -105,11 +126,12 @@ elif [ -n "$fit_st" ]; then
 else
   printf "    %-12s %-12s\n" "fit" "-"
 fi
+fi
 
 # ---------------------------------------------------------------------------
-# Systems: setup + production
+# Systems: setup + production + convergence
 # ---------------------------------------------------------------------------
-for SYS in ${DOPA_SYSTEMS}; do
+for SYS in ${DETAIL:-${DOPA_SYSTEMS}}; do
   SD="${DOPA_RUNS}/${SYS}"
   echo
   if [ ! -d "$SD" ]; then
@@ -160,7 +182,7 @@ for SYS in ${DOPA_SYSTEMS}; do
     [ -n "$perf" ] && echo "    bench: ${perf} ns/day per replica" || echo "    bench: ${bst:-running}"
   fi
 
-  [ "$n_tpr" -gt 0 ] || continue
+  if [ "$n_tpr" -gt 0 ]; then
   target_ps=$(awk -F= '/^nsteps/{n=$2} /^dt/{dt=$2} END{printf "%.0f", n * dt}' "${reps[0]}/mdout_md.mdp" 2>/dev/null)
   [ -n "$target_ps" ] && [ "$target_ps" -gt 0 ] 2>/dev/null || target_ps=300000
 
@@ -211,15 +233,25 @@ for SYS in ${DOPA_SYSTEMS}; do
     echo "    ⚠ production not in queue and not finished:"
     show_errors "$(last_log "dopa_md_${SYS}.*.out")" "$(last_log "dopa_md_${SYS}.*.err")"
   fi
+  fi
+
+  # convergence numbers (+ plots): energies from the logs, RMSD/Rg/ring distance from md.xtc
+  if [ "$CONV" -eq 1 ] && ls "${SD}"/rep*/nvt.log >/dev/null 2>&1; then
+    python3 "${ROOT}/dopa/src/monitor_conv.py" --sysdir "$SD" --nrep "${DOPA_NREP}" \
+      --first "${DOPA_FIRST}" --last "${DOPA_LAST}" --mut "${DOPA_MUT}" --plot "$PLOT_MODE" 2>&1 \
+      | grep -v "^\s*$"
+  fi
 done
 
 # ---------------------------------------------------------------------------
-# Analysis
+# Analysis (overview only)
 # ---------------------------------------------------------------------------
 SUMMARY="${DOPA_RUNS}/analysis/summary.tsv"
-echo
 ast="${J_STATE[dopa_analysis]:-}"
-if [ -s "$SUMMARY" ]; then
+if [ -n "$DETAIL" ]; then
+  :
+elif [ -s "$SUMMARY" ]; then
+  echo
   echo "▶ Analysis  (${SUMMARY#${ROOT}/}, $(date -r "$SUMMARY" '+%d.%m. %H:%M'))${ast:+  job: $ast}"
   awk -F'\t' -v systems="${DOPA_SYSTEMS}" '
     NR == 1 { next }
@@ -234,6 +266,7 @@ if [ -s "$SUMMARY" ]; then
       }
     }' "$SUMMARY"
 else
+  echo
   echo "▶ Analysis  ${ast:--}"
 fi
 
