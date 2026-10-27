@@ -170,10 +170,47 @@ Append `--dry-run` to see the `sbatch` calls without submitting.
 
 ### Monitoring
 
+`dopa_monitor.sh` gives one overview of all stages, in the style of
+`bin/monitor_pipeline.sh`; keep it running in the PuTTY window:
+
+```bash
+watch -n 60 bash dopa/bin/dopa_monitor.sh
+```
+
+```
+==========================================================================
+  DOPA MD Monitor  |  17:15:53  |  Y65 -> DOPA, domain 34-144
+==========================================================================
+
+▶ RESP charges (HF/6-31G*, PySCF)
+    dah_alpha_a  RUN 10:09    opt step 14, E = -872.10576892 Eh
+    dah_beta_b   PENDING
+    fit          PENDING
+
+▶ wt       setup:DONE✓        38412 atoms    prod:RUN 05:02:11   restarts:1
+    bench: 101.0 ns/day per replica
+    rep1  [█████████···············]   116.0 / 300 ns   104.5 ns/day
+    ...
+    total 470.0 / 1200 ns (39%)   ≈ 1d 17h compute left (+ queue)
+
+▶ Analysis  (runs/dopa/analysis/summary.tsv, 30.10. 09:12)
+    metric                         wt               dah_ce1          dah_ce2
+    ring_dist_65-112_A             5.412±0.100      6.010±0.200      ...
+```
+
+It shows per QM conformer the optimization step and energy, after the fit the
+Tyr check (max |Δq| vs. ff99SB) and the new hydroxyl charges; per system the
+setup stage (built → topology → solvated → EM → NVT → NPT → DONE), the
+benchmark, progress bars per replica with ns/day, the remaining compute time,
+and once analysed a compact WT-vs-DOPA table. Failed stages are flagged with
+`FAIL?` / `⚠` and the last error lines of their Slurm log.
+
+Slurm logs are named after the job: `logs/<job name>.<job id>.out`, e.g.
+`logs/dopa_md_wt.12345678.out`, `logs/dopa_setup_dah_ce1.12345679.out`.
+
 ```bash
 squeue -u $USER                                    # queue
-tail -f logs/dopa_md.<jobid>.out                   # production log
-grep Performance runs/dopa/wt/rep*/md.log          # ns/day
+grep Performance runs/dopa/wt/rep*/md.log          # ns/day per 12 h segment
 cat runs/dopa/wt/resubmit.count                    # number of 12 h restarts so far
 ```
 
@@ -235,7 +272,9 @@ n = 4 the p-values are only a rough guide. Effects that appear in both
 dopa/
 ├── README.md
 ├── dopa.env                  study settings (sourced after config/workflow.env)
-├── bin/dopa_submit.sh        submits the stages
+├── bin/
+│   ├── dopa_submit.sh        submits the stages
+│   └── dopa_monitor.sh       status overview (use with watch)
 ├── params/
 │   ├── resp_dopa.py          dipeptide builder, QM (PySCF), RESP fit, rtp/hdb writer
 │   ├── make_qm_venv.sh       Python venv with PySCF + geomeTRIC

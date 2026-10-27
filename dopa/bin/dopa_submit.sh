@@ -49,18 +49,18 @@ case "${STAGE}" in
   setup|all)
     for s in "${SYSTEMS[@]}"; do
       [ -z "${DRY_RUN}" ] && mkdir -p "${DOPA_RUNS}/${s}"
-      JID=$(submit "setup ${s}" "${SL}/12_setup.slurm" "${s}")
+      JID=$(submit "setup ${s}" -J "dopa_setup_${s}" "${SL}/12_setup.slurm" "${s}")
       [ -z "${DRY_RUN}" ] && echo "${JID}" > "${DOPA_RUNS}/${s}/setup.jobid"
       echo "setup ${s}: ${JID}"
       if [ "${STAGE}" = "all" ]; then
-        JID2=$(submit "prod ${s}" --dependency=afterok:${JID} "${SL}/13_production.slurm" "${s}")
+        JID2=$(submit "prod ${s}" -J "dopa_md_${s}" --dependency=afterok:${JID} "${SL}/13_production.slurm" "${s}")
         echo "prod  ${s}: ${JID2} (after ${JID})"
       fi
     done
     ;;
   bench)
     s="${SYSTEMS[0]}"
-    JID=$(submit "bench ${s}" "${SL}/13_production.slurm" "${s}" bench)
+    JID=$(submit "bench ${s}" -J "dopa_bench_${s}" "${SL}/13_production.slurm" "${s}" bench)
     echo "bench ${s}: ${JID}"
     ;;
   prod)
@@ -72,7 +72,7 @@ case "${STAGE}" in
           DEP=(--dependency=afterok:${SJ})
         fi
       fi
-      JID=$(submit "prod ${s}" "${DEP[@]}" "${SL}/13_production.slurm" "${s}")
+      JID=$(submit "prod ${s}" -J "dopa_md_${s}" "${DEP[@]}" "${SL}/13_production.slurm" "${s}")
       echo "prod ${s}: ${JID} ${DEP[*]}"
     done
     ;;

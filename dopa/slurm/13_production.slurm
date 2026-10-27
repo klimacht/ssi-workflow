@@ -1,6 +1,6 @@
 #!/bin/bash -l
-#SBATCH -o __SSI_ROOT__/logs/dopa_md.%j.out
-#SBATCH -e __SSI_ROOT__/logs/dopa_md.%j.err
+#SBATCH -o __SSI_ROOT__/logs/%x.%j.out
+#SBATCH -e __SSI_ROOT__/logs/%x.%j.err
 #SBATCH -J dopa_md
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=64
@@ -79,4 +79,4 @@ if [ "${n_sub}" -ge "${MAX_RESUBMIT}" ]; then
 fi
 echo $((n_sub + 1)) > resubmit.count
 echo "${n_done}/${#REPS[@]} replicas finished; resubmitting (#$((n_sub + 1)))"
-sbatch "${SSI_ROOT}/dopa/slurm/13_production.slurm" "${SYSTEM}"
+sbatch -J "dopa_md_${SYSTEM}" "${SSI_ROOT}/dopa/slurm/13_production.slurm" "${SYSTEM}"

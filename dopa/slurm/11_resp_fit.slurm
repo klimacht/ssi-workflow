@@ -1,6 +1,6 @@
 #!/bin/bash -l
-#SBATCH -o __SSI_ROOT__/logs/dopa_fit.%j.out
-#SBATCH -e __SSI_ROOT__/logs/dopa_fit.%j.err
+#SBATCH -o __SSI_ROOT__/logs/%x.%j.out
+#SBATCH -e __SSI_ROOT__/logs/%x.%j.err
 #SBATCH -J dopa_fit
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
