@@ -12,6 +12,7 @@
 # maintenance reservation.
 #   dopa_submit.sh analysis                 post-processing + comparison, then the figures
 #   dopa_submit.sh render                   figures and movies only (after an analysis)
+#   dopa_submit.sh qmmm                     QM/MM single points per Tyr on MD frames (after an analysis)
 #
 # Add --dry-run as the last argument to print the sbatch calls only.
 
@@ -92,8 +93,26 @@ case "${STAGE}" in
     JID=$(submit render "${SL}/16_render.slurm")
     echo "render: ${JID}"
     ;;
+  qmmm)
+    N=$(( DOPA_NREP * DOPA_QMMM_FRAMES ))
+    ARRAY="0-$(( N - 1 ))%${DOPA_QMMM_PARALLEL:-8}"
+    JID=$(submit "qmmm prep" -J dopa_qmmm_prep --cpus-per-task=4 --mem=16G --time=01:00:00 "${SL}/17_qmmm.slurm" prep)
+    echo "qmmm prep:    ${JID}"
+    JID2=$(submit "qmmm sites" -J dopa_qmmm_sites --dependency=afterok:${JID} --array=${ARRAY} \
+      --time="${DOPA_QMMM_TIME_SITES:-03:00:00}" "${SL}/17_qmmm.slurm" run sites)
+    echo "qmmm sites:   ${JID2} (${N} frames, after ${JID})"
+    DEP="afterany:${JID2}"
+    if [ -n "${DOPA_QMMM_TRIAD// /}" ]; then
+      JIDT=$(submit "qmmm triad" -J dopa_qmmm_triad --dependency=afterok:${JID} --array=${ARRAY} \
+        --time="${DOPA_QMMM_TIME_TRIAD:-10:00:00}" "${SL}/17_qmmm.slurm" run triad)
+      echo "qmmm triad:   ${JIDT} (${N} frames, after ${JID})"
+      DEP="${DEP}:${JIDT}"
+    fi
+    JID3=$(submit "qmmm summary" -J dopa_qmmm_sum --dependency=${DEP} --cpus-per-task=1 --mem=4G --time=00:20:00 "${SL}/17_qmmm.slurm" summary)
+    echo "qmmm summary: ${JID3} (after ${DEP#afterany:})"
+    ;;
   *)
-    sed -n '2,16p' "$0"
+    sed -n '2,17p' "$0"
     exit 1
     ;;
 esac

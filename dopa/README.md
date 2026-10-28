@@ -28,6 +28,7 @@ wild-type reference. The directory is called `dopa/` and the branch
 [Cross-link: dityrosine](#cross-link-33-dityrosine-y65y127-x65_127) ·
 [Analysis](#analysis) ·
 [Figures and movies](#figures-and-movies) ·
+[QM/MM: why Y65?](#qmmm-why-y65) ·
 [Running on Viper](#running-on-viper) ·
 [Limitations](#limitations) · [Files](#files) · [References](#references)
 
@@ -175,6 +176,7 @@ flowchart TD
   G["6 · Production 4 × 300 ns<br/>13_production.slurm · resubmits itself"] --> H
   H["7 · Analysis<br/>14_analysis.slurm"] --> I
   I["8 · Figures and movies<br/>16_render.slurm"]
+  H --> J["9 · QM/MM single points on MD frames<br/>17_qmmm.slurm"]
 ```
 
 | Step | What happens | Why it is needed | Script | In → out | Cost (Viper) |
@@ -193,6 +195,7 @@ flowchart TD
 | **6** Production | 300 ns unrestrained NPT per replica, 4 replicas per system with `mdrun -multidir`; continues from checkpoints and resubmits itself every 12 h | only unrestrained dynamics shows structural change; 4 independent replicas give error bars | `13_production.slurm` | → `rep*/md.xtc` (protein every 10 ps) | `DOPA_PROD_NODES` (4) nodes per system; days |
 | **7** Analysis | whole/centered protein trajectories, side-chain SASA, then per site the comparison WT vs. modified systems; exposure of the reactive Tyr atoms and Tyr–Tyr contacts vs. the paper | turns trajectories into numbers with mean ± SEM over replicas | `14_analysis.slurm`, `src/analyze_dopa.py`, `src/tyr_exposure.py` | → `runs/dopa/analysis/` | 1 node-share, ~1 h |
 | **8** Figures and movies | representative structures, PyMOL renderings (exposure, flexibility, Tyr cluster, dityrosine), two MP4 movies of the WT | shows where the numbers of step 7 sit in the structure | `16_render.slurm`, `src/viz_prep.py`, `src/render_dopa_pymol.py`, `src/render_dopa_compose.py` | → `runs/dopa/analysis/figures/` | 1 node-share, < 30 min |
+| **9** QM/MM single points | per MD frame and Tyr: ionisation and deprotonation energy of the side chain in the field of the protein; the Y65–Y127–Y112 triad as one QM region (where the hole sits) | exposure alone does not explain why Y65 is the preferred site (see [QM/MM](#qmmm-why-y65)) | `17_qmmm.slurm`, `src/qmmm_prep.py`, `src/qmmm_tyr.py` | → `runs/dopa/qmmm/<system>/` | 2 × 40 array tasks × 32 cores: sites ~1.5 h, triad several hours each |
 
 **What differs per modification.** Only steps 1–4a(b); from solvation on,
 every system goes through the same scripts and analysis.
@@ -554,6 +557,91 @@ the analysis (`site*/summary.tsv`, `contacts.tsv`, `hbonds.tsv`) shows them too.
 
 ---
 
+## QM/MM: why Y65?
+
+**Why.** Under peroxynitrite (paper) and under ozone (MS data of N. Bothen,
+poster: Tyr+O 31 % at Y65, 0 at Y124 and Y127) Y65 is by far the most modified
+tyrosine of domain 1. Steric shielding explains the tyrosines that are never
+modified (Y108, Y127 and the buried ones of domain 2), but not the ranking of
+the exposed ones: Y65 and Y124 have the same ortho-C exposure (16 Å² in the
+WT), and both ring faces are mostly covered (V69/K123 over Y65, K64/V128 over
+Y124), yet 31 % vs. 0 % DOPA. The difference must come from the environment of
+the ring, which only a QM calculation in the field of the protein can show.
+Two further observations from the snapshot point the same way:
+
+- Y65, Y127 and Y112 form an edge-to-face chain (Y65–Y127 in 53 % of the WT
+  frames, Y112–Y127 in 25 %; ring centres 5.9 and 6.6 Å); Y124 has no π contact
+  with any tyrosine (8 Å from Y65, planes nearly perpendicular).
+- K64 lies over the ring face of Y124 (cation–π, 14 %); over Y65 only K123 in
+  2.5 % of the frames.
+- The phenol O of Y65 is 4.4–6.2 Å from that of Y112 in 65 % of the frames
+  and from that of Y127 in 37 %, the distance one bridging water (or ion) can
+  span; from Y124 it is never closer than 10.5 Å. A water-bridged OH network
+  Y65–Y112/Y127 could carry protons and electrons together (as in other
+  tyrosine chains); whether waters actually sit there needs full-system frames,
+  and then the bridging waters can join the QM region of the triad.
+
+**What** (`src/qmmm_tyr.py`, PySCF, electrostatic embedding). Per frame and per
+Tyr the side chain from CB is the QM region (p-cresol, link H on the CB→CA bond
+at 1.09 Å). Every other atom is a force-field point charge (from
+`md_protein.tpr`), Gaussian-smeared (0.8 Å); CA and HA of the cut residue are
+removed and the charge left on N, H, C, O is spread over them so that the
+residue keeps its total charge. All states at the MD geometry (vertical):
+
+| Quantity | Definition | Meaning |
+|----------|------------|---------|
+| `IE_phenol` | E(PhOH•⁺) − E(PhOH) | how easily the ring gives up an electron (radical pathway) |
+| `IE_phenolate` | E(PhO•) − E(PhO⁻) | electron detachment from the phenolate (electron transfer to O₃) |
+| `E_dep` | E(PhO⁻) − E(PhOH) | deprotonation; only differences between sites count (ozone reacts with the phenolate orders of magnitude faster than with the phenol) |
+| triad `IE`, spin per ring | radical cation of Y65 + Y127 + Y112 as one QM region, Löwdin spin population summed per ring | which ring the hole sits on |
+
+Each quantity is computed with the protein charges (`mm`) and without them at
+the same QM coordinates (`gas`); `mm − gas` is the effect of the environment,
+separated from the geometry. ωB97X/6-31+G* (range-separated, so the hole is
+not spread artificially; diffuse functions for the phenolate), density fitting.
+Each radical starts from the orbitals of its closed-shell partner with one
+electron taken out of the HOMO (fewer SCF cycles than an atomic guess).
+The single sites and the triad are separate array tasks (`run sites`,
+`run triad`) with their own time limits (`DOPA_QMMM_TIME_SITES`,
+`DOPA_QMMM_TIME_TRIAD`); the triad has three times the basis and takes several
+times longer.
+
+**Frames** (`src/qmmm_prep.py`, MDAnalysis): `DOPA_QMMM_FRAMES` per replica
+(default 10, i.e. 40 for the WT), evenly spread over t ≥ `DOPA_SKIP_NS`, from
+`md_center.xtc`; names and residue numbers from `protein_ref.gro`, charges and
+elements from `md_protein.tpr`.
+
+**Limitations.** The production trajectories hold the protein only, so the MM
+environment has no water and no ions; this overestimates the protein field
+(no dielectric screening). The `mm − gas` shifts are therefore upper bounds, and
+the comparison between sites is what counts. With full-system frames
+(`qmmm_prep.py --top/--tpr/--xtc`, whole and centred) waters and ions within
+20 Å of the rings are included automatically. Vertical energies without
+relaxation; no reaction barriers (ozone addition) — those would be the next,
+much more expensive step.
+
+**Output** in `runs/dopa/qmmm/<system>/`: `frames/` and `frames.tsv`
+(input), `results/<frame>_sites.json` and `results/<frame>_triad.json` (all
+energies with SCF cycles and time per state; a restarted task skips finished
+states), `summary_sites.tsv` (mean ± SEM per site and environment, and the
+difference to the mean of all sites), `summary_triad.tsv` (IE, spin per ring,
+fraction of frames with the hole mainly on each ring).
+
+**Tested so far** on the snapshot of 28 October: frame preparation (40 frames,
+1627 atoms) and `qmmm_tyr.py check` (QM C₇H₈O / C₇H₇O per site, C₂₁H₂₄O₃ for
+the triad, MM charge 0.000, closest charge 1.6 Å); PySCF 2.14 on a workstation
+(WSL, 32 threads) for frame 0 (WT rep 1, 50 ns). Y65: IE_phenol 8.22 eV gas /
+9.41 eV mm, IE_phenolate 1.93 / 3.07 eV, E_dep 15.58 / 14.53 eV; the shift
+mm − gas (+1.19, +1.14, −1.06 eV) matches the Coulomb potential of the MM
+charges at the ring centre (+1.07 eV; K123 and R66). 70 s per closed-shell
+state, 160–215 s per radical with the atomic guess, ~17 min per site with both
+environments. Run one task of each array first (after the prep job:
+`sbatch --array=0 dopa/slurm/17_qmmm.slurm run sites` and
+`sbatch --array=0 --time=10:00:00 dopa/slurm/17_qmmm.slurm run triad`), look
+at the logs and set `DOPA_QMMM_TIME_*` from them before the full arrays.
+
+---
+
 ## Running on Viper
 
 ### One-time setup
@@ -584,6 +672,7 @@ bash dopa/bin/dopa_submit.sh bench wt        # step 5
 bash dopa/bin/dopa_submit.sh prod            # step 6 (waits for running setup jobs)
 bash dopa/bin/dopa_submit.sh analysis        # steps 7 + 8, after production
 bash dopa/bin/dopa_submit.sh render          # step 8 again (e.g. after changing a figure)
+bash dopa/bin/dopa_submit.sh qmmm            # step 9: prep -> sites array + triad array (one task per frame) -> summary
 bash dopa/bin/dopa_submit.sh all             # steps 4 + 6 chained for all systems
 ```
 
@@ -710,10 +799,12 @@ dopa/
 │   ├── render_dopa_pymol.py  raw PyMOL images and movie frames
 │   ├── render_dopa_compose.py  panels, colorbars, MP4 movies
 │   ├── viz_style.py          colour scales shared by the two render steps
+│   ├── qmmm_prep.py          MD frames + force-field charges for the QM/MM single points
+│   ├── qmmm_tyr.py           QM/MM: Tyr ionisation/deprotonation energies, hole in the triad
 │   ├── monitor_conv.py       convergence part of dopa_monitor.sh
 │   └── amberff.py            amber force-field terms (torsion fit)
 ├── mdp/                      em, nvt, npt, md; em_grow, grow (cross-links)
-└── slurm/                    10_resp_qm … 14_analysis, 15_dity_qm, 16_render
+└── slurm/                    10_resp_qm … 14_analysis, 15_dity_qm, 16_render, 17_qmmm
 ```
 
 ---
