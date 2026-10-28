@@ -125,7 +125,8 @@ def fig_panels(raw, out, info, prefix, systems, fname, title_fn, legend=None, cb
     nrow, ncol = grid(len(paths), ncol)
     h, w_px = mpimg.imread(str(paths[0][1])).shape[:2]
     w = 3.2 if ncol <= 3 else 2.4
-    h_img, h_bottom = w * h / w_px + 0.3, 0.8
+    # a colorbar needs room for its tick labels above the footnote
+    h_img, h_bottom = w * h / w_px + 0.3, 1.0 if cbar else 0.8
     fig = plt.figure(figsize=(w * ncol, h_img * nrow + h_bottom), dpi=200)
     H = h_img * nrow + h_bottom
     for k, (s, p) in enumerate(paths):
@@ -134,7 +135,7 @@ def fig_panels(raw, out, info, prefix, systems, fname, title_fn, legend=None, cb
               title_fn(s))
     if cbar:
         cm, rng, label, extend = cbar
-        colorbar(fig, [0.3, 0.4 * h_bottom / H, 0.4, 0.1 / H], cm, rng, label, extend)
+        colorbar(fig, [0.3, 0.45 * h_bottom / H, 0.4, 0.1 / H], cm, rng, label, extend)
     if legend:
         fig.legend(handles=legend, loc="lower center", bbox_to_anchor=(0.5, 0.42 * h_bottom / H),
                    ncol=len(legend), frameon=False, fontsize=8.5)
