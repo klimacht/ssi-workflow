@@ -1,20 +1,33 @@
-# Phl p 5a Y65 → L-DOPA: free MD of wild type vs. mutant
+# Phl p 5a: oxidative tyrosine modifications in free MD
 
-Unrestrained molecular dynamics (MD) to see how hydroxylation of Tyr65 to
-L-DOPA (3,4-dihydroxyphenylalanine, PDB residue code `DAH`) changes the
-structure and dynamics of the major grass pollen allergen Phl p 5a.
+Unrestrained molecular dynamics (MD) of the first helical domain of the
+major grass pollen allergen Phl p 5a, with its tyrosines modified the way
+peroxynitrite modifies them: hydroxylation (L-DOPA, TOPA), nitration
+(3-nitrotyrosine) and cross-linking (dityrosine). One experiment, one
+pipeline: every modification goes through the same steps (parameters →
+system → equilibration → production → analysis), and all systems are
+compared with the same wild-type runs and with the modification data of
+Bothen et al. (*Free Radic. Res.* 2026).
+
+The experiment runs in two phases. **Phase 1 (now)** is a pilot: ten
+systems that use every kind of modification at least once, to check that
+the pipeline works end to end and gives sensible, reproducible results.
+**Phase 2** goes through the tyrosines and modifications systematically.
 
 Unlike the SSI runs in the main workflow (protein heavy atoms restrained, so
 the structure cannot change), everything here is free MD, including the
-wild-type reference.
+wild-type reference. The directory is called `dopa/` and the branch
+`dopa-y65` because the study started with Y65 → DOPA.
 
 **Contents:** [Background](#background) ·
-[Workflow: what happens and why](#workflow-what-happens-and-why) ·
+[Experiment plan](#experiment-plan) ·
+[One pipeline for all modifications](#one-pipeline-for-all-modifications) ·
 [Design decisions](#design-decisions) ·
-[Tyr exposure vs. the paper](#reactive-atom-exposure-and-tyrtyr-contacts-wt-vs-paper) ·
-[DOPA parameters](#dopa-parameters) ·
+[Status](#status-pilot-snapshot-of-28-october-2026) ·
+[Hydroxylation: DOPA and TOPA](#hydroxylation-dopa-and-topa) ·
+[Cross-link: dityrosine](#cross-link-33-dityrosine-y65y127-x65_127) ·
+[Analysis](#analysis) ·
 [Running on Viper](#running-on-viper) ·
-[Outputs and interpretation](#outputs-and-interpretation) ·
 [Limitations](#limitations) · [Files](#files) · [References](#references)
 
 ---
@@ -38,12 +51,23 @@ every peroxynitrite dose (~95 % at 5:1), mostly single nitration, and
 3.1 % hydroxylation. It sits in an α-helix (residues 64–84) of the first
 helical domain and is partly buried (relative solvent accessibility 0.23).
 In the AlphaFold 3 model its ring packs into a cluster with three other
-tyrosines (Y112, Y124, Y127; ring atoms 3.5–4.1 Å apart).
+tyrosines (Y112, Y124, Y127; ring atoms 3.5–4.1 Å apart). Y65 forms
+cross-links with Y124 and Y127 that persist at the highest dose and match
+NMR contacts, i.e. are likely intramolecular. The domain holds five
+tyrosines (Y65, Y108, Y112, Y124, Y127).
 
-**Question.** Does the extra OH group of DOPA65 change the local structure:
-packing in the tyrosine cluster, hydrogen bonds, side-chain conformation,
-flexibility and helicity around the site? This matters because modified
-residues can alter how an allergen is recognized by the immune system.
+**Questions.**
+
+1. *Effect of a modification:* does a modified tyrosine change the local
+   structure (packing in the tyrosine cluster, hydrogen bonds, side-chain
+   conformation, flexibility, helicity)? Modified residues can alter how an
+   allergen is recognized by the immune system.
+2. *Origin of the site selectivity:* does the dynamics of the unmodified
+   protein explain which tyrosines are modified and which pairs cross-link
+   (transient exposure of the reactive atoms, Tyr–Tyr approach), better than
+   the single structure used in the paper?
+3. *Sequence of events:* does a first modification (e.g. at Y65) change the
+   exposure of its neighbours and so the next modification?
 
 **What free MD can and cannot answer.** In a few hundred nanoseconds MD
 samples local rearrangements: side-chain repacking, hydrogen-bond networks,
@@ -55,15 +79,62 @@ spread between independent replicas (Knapp et al. 2018; Grossfield et al. 2018).
 
 ---
 
-## Workflow: what happens and why
+## Experiment plan
+
+### Phase 1: pilot (running)
+
+Ten systems, chosen so that every part of the pipeline is used once:
+two new residue types for hydroxylation, a cross-link with a new bond, three
+sites, both ring orientations, and the wild type as the common reference.
+
+| System | Modification | Why in the pilot |
+|--------|--------------|------------------|
+| `wt` | none | reference for every comparison; exposure and Tyr–Tyr contacts vs. Table 1 of the paper |
+| `dah_ce1`, `dah_ce2` | Y65 → DOPA | most modified site; first residue type with new parameters |
+| `y112_dah_ce1`, `y112_dah_ce2` | Y112 → DOPA | hydroxylated in the paper (1.6 %); most exposed Tyr of the cluster |
+| `y127_dah_ce1`, `y127_dah_ce2` | Y127 → DOPA | hydroxylated (0.7 %) although buried at residue level |
+| `y65_top_ce1`, `y65_top_ce2` | Y65 → TOPA (2,4,5-trihydroxyphenylalanine) | multi-hydroxylation was detected; second hydroxylated residue type |
+| `x65_127` | 3,3'-dityrosine Y65–Y127 | cross-link of the paper; tests new bonded terms and the bond-growth setup |
+
+4 replicas × 300 ns each. Questions the pilot has to settle before phase 2:
+
+- Does every step run without manual fixes for all residue types?
+- Does the WT reproduce the static exposures of Table 1 at the start, and
+  how much do they fluctuate?
+- Are the replica spreads small enough that effects of the size seen here
+  can be resolved with 4 × 300 ns, or are longer runs or more replicas needed?
+- Are both ring orientations of a hydroxylated Tyr needed, or does one
+  orientation convert into the other during the run?
+
+### Phase 2: systematic (planned)
+
+The same pipeline over the tyrosines and modifications of the paper. What it
+needs on top of the pilot:
+
+| Modification | Sites / pairs | What is new |
+|--------------|---------------|-------------|
+| 3-nitrotyrosine | Y65, Y108, Y112, Y124, Y127 | the main modification in the paper (ND up to 95 %); new residue: parameters for the NO₂ group with the same Tyr-referenced RESP protocol, ring–NO₂ torsion from a QM scan as for the dityrosine bridge |
+| DOPA | Y108, Y124 (Y65, Y112, Y127 done in the pilot) | nothing new |
+| 3,3'-dityrosine | Y65–Y124 (paper), further pairs that come close in the WT runs | start structures for pairs whose ortho carbons are far apart in the model |
+| isodityrosine (C–O) | pairs with short ortho C···O distances in the WT (e.g. Y65–Y112) | new bond type, parameters as for dityrosine |
+| sequential modifications | e.g. nitrated Y65 + DOPA or a cross-link at a neighbour | combinations of existing residues |
+| domain 2 tyrosines | Y207, Y210, Y224, Y236 | a second domain system (residues ~161–257) |
+
+Which systems are worth running follows from the pilot (exposure and
+contacts in the WT, size of the effects) and from the modification
+degrees in Tables S3/S4 of the paper.
+
+---
+
+## One pipeline for all modifications
 
 ```mermaid
 flowchart TD
   A["0 · One-time setup<br/>clone, setup.sh, config, QM venv"] --> B
-  B["1 · QM on capped dipeptides<br/>10_resp_qm.slurm · 6 jobs"] --> C
-  C["2 · RESP charge fit<br/>11_resp_fit.slurm"] --> D
-  D["3 · DOPA force field<br/>make_ff.sh (inside step 4)"] --> E
-  E["4 · Build + equilibrate<br/>12_setup.slurm · wt, dah_ce1, dah_ce2"] --> F
+  B["1 · QM on model compounds<br/>10_resp_qm.slurm · 15_dity_qm.slurm"] --> C
+  C["2 · Charges and new bonded terms<br/>11_resp_fit.slurm · dity_params.py"] --> D
+  D["3 · Force field with the new residues<br/>make_ff.sh (inside step 4)"] --> E
+  E["4 · Build + equilibrate<br/>12_setup.slurm · all systems"] --> F
   F["5 · Benchmark<br/>13_production.slurm SYSTEM bench"] --> G
   G["6 · Production 4 × 300 ns<br/>13_production.slurm · resubmits itself"] --> H
   H["7 · Analysis<br/>14_analysis.slurm"]
@@ -71,18 +142,36 @@ flowchart TD
 
 | Step | What happens | Why it is needed | Script | In → out | Cost (Viper) |
 |------|--------------|------------------|--------|----------|--------------|
-| **0** One-time setup | clone branch, `setup.sh` (paths), `config/workflow.env` (GROMACS, modules), Python venv with PySCF | scripts need absolute paths and the self-compiled GROMACS; DOPA charges need a QM program (ORCA is license-restricted at MPCDF) | `setup.sh`, `params/make_qm_venv.sh` | – → configured checkout, venv | minutes, login node |
-| **1** QM | builds Ace-X-NMe dipeptides (DOPA: 2 backbone × 2 OH patterns; Tyr: 2 backbone), optimizes them at HF/6-31G* with φ/ψ frozen, computes the electrostatic potential (ESP) on ~9 000 points around each molecule | the force field has no DOPA; atomic partial charges must be derived exactly like the existing amber charges, from the ESP of a QM calculation | `slurm/10_resp_qm.slurm` (array 0–5) | – → `runs/dopa/qm/<conf>/` (`.xyz`, `_vpot.out`) | 6 × 16 cores, ~0.5–2 h |
-| **2** RESP fit | fits one set of charges that reproduces the ESP of all conformers, with restraints; Tyr is fitted the same way as a check | charges must not depend on one conformation; the Tyr refit shows whether the protocol reproduces ff99SB | `slurm/11_resp_fit.slurm` | QM files → `params/results/`, `ff/dah.rtp`, `ff/dah.hdb` | 1 core, minutes |
-| **3** Force field | copies amber99sb-ildn, appends residue `DAH`, registers `DAH` as protein | GROMACS can only build topologies for residues it knows; "Protein" index groups must include DAH | `ff/make_ff.sh` (called in step 4) | `dah.rtp/.hdb` → `<system>/amber99sb-ildn-dopa.ff/`, `residuetypes.dat` | seconds |
-| **4a** Build | cuts domain 34–144 from the AF3 model, adds ACE/NME caps, places the DOPA O (variants), adds hydrogens (`pdb2gmx`) | a smaller, well-folded system is ~20× cheaper; caps avoid artificial charged ends; both ring orientations are needed (see below) | `src/make_system_pdb.py`, `12_setup.slurm` | AF3 model → `start.pdb`, `topol.top` | seconds |
-| **4b** Solvate + ions | rhombic dodecahedron (1.2 nm to the wall), TIP3P water, neutralize, 0.15 M NaCl | protein behaviour depends on water and ionic strength; Y65 has charged neighbours | `12_setup.slurm` | → `solv_ions.gro` (~35–40k atoms) | seconds |
-| **4c** Energy minimization | steepest descent | removes atom overlaps from building (e.g. the new O in `dah_ce2`) that would otherwise blow up the simulation | `12_setup.slurm` | → `em.gro` | minutes |
-| **4d** NVT 100 ps, restrained | heat to 300 K with random velocities, one seed per replica, protein heavy atoms restrained | water must relax around the fixed protein first; different seeds make the 4 replicas independent | `12_setup.slurm` | → `rep*/nvt.gro` | minutes |
-| **4e** NPT 1 ns, restrained | pressure coupling to 1 bar, still restrained | box volume and water density must settle before the protein is released | `12_setup.slurm` | → `rep*/npt.gro`, `rep*/md.tpr` | ~10–30 min |
+| **0** One-time setup | clone branch, `setup.sh` (paths), `config/workflow.env` (GROMACS, modules), Python venv with PySCF | scripts need absolute paths and the self-compiled GROMACS; new residues need a QM program (ORCA is license-restricted at MPCDF) | `setup.sh`, `params/make_qm_venv.sh` | – → configured checkout, venv | minutes, login node |
+| **1** QM | per new residue: capped dipeptides Ace-X-NMe optimized at HF/6-31G* with φ/ψ frozen (DOPA 4, TOPA 8 conformers, Tyr 2 as reference), electrostatic potential (ESP) on ~9 000 points around each; for a cross-link also the bridge model compound and a torsion scan | the force field does not know the modified residues; charges must be derived exactly like the existing amber charges, from the ESP of a QM calculation | `slurm/10_resp_qm.slurm` (array), `slurm/15_dity_qm.slurm` | – → `runs/dopa/qm/<conf>/`, `runs/dopa/qm_dity/` | per conformer 16 cores, ~0.5–2 h |
+| **2** Parameters | RESP fit over all conformers, Tyr fitted the same way as a check, Tyr-referenced charges; new bonded terms (e.g. the dityrosine bridge) fitted to the QM scan | charges must not depend on one conformation; the Tyr refit shows whether the protocol reproduces ff99SB | `slurm/11_resp_fit.slurm`, `params/dity_params.py` | QM files → `params/results/`, `ff/*.rtp`, `ff/*.hdb`, `ff/dity_*.itp` | 1 core, minutes |
+| **3** Force field | copies amber99sb-ildn, appends the new residues (`DAH`, `TOP`, `DTY`) and bonded terms, registers them as protein | GROMACS can only build topologies for residues it knows; "Protein" index groups must include them | `ff/make_ff.sh` (called in step 4) | → `<system>/amber99sb-ildn-dopa.ff/`, `residuetypes.dat` | seconds |
+| **4a** Build | cuts domain 34–144 from the AF3 model, adds ACE/NME caps, applies the modification named by the system (new O atoms, ring orientation, cross-link rotamers), adds hydrogens (`pdb2gmx`) | a smaller, well-folded system is ~20× cheaper; caps avoid artificial charged ends; both ring orientations are needed (see below) | `src/make_system_pdb.py`, `12_setup.slurm` | AF3 model → `start.pdb`, `topol.top` | seconds |
+| **4b** Cross-links only | the new bond is grown from the start distance to its equilibrium length over 200 ps, with the surroundings free to adapt | the two ring carbons cannot be put at bond distance in the rigid model | `src/crosslink_topology.py`, `mdp/grow.mdp` | → `topol_grow.top` | minutes |
+| **4c** Solvate + ions | rhombic dodecahedron (1.2 nm to the wall), TIP3P water, neutralize, 0.15 M NaCl | protein behaviour depends on water and ionic strength; Y65 has charged neighbours | `12_setup.slurm` | → `solv_ions.gro` (~35–40k atoms) | seconds |
+| **4d** Energy minimization | steepest descent | removes atom overlaps from building (e.g. a new O pointing at a neighbour) | `12_setup.slurm` | → `em.gro` | minutes |
+| **4e** NVT 100 ps, restrained | heat to 300 K with random velocities, one seed per replica, protein heavy atoms restrained | water must relax around the fixed protein first; different seeds make the 4 replicas independent | `12_setup.slurm` | → `rep*/nvt.gro` | minutes |
+| **4f** NPT 1 ns, restrained | pressure coupling to 1 bar, still restrained | box volume and water density must settle before the protein is released | `12_setup.slurm` | → `rep*/npt.gro`, `rep*/md.tpr` | ~10–30 min |
 | **5** Benchmark | 20 000 steps of production | real ns/day on Viper → how many 12 h jobs production needs | `13_production.slurm SYSTEM bench` | → `rep*/bench.log` | ~10 min |
-| **6** Production | 300 ns unrestrained NPT per replica, 4 replicas in one node job; continues from checkpoints and resubmits itself every 12 h | only unrestrained dynamics shows structural change; 4 independent replicas give error bars | `13_production.slurm` | → `rep*/md.xtc` (protein every 10 ps) | 1 node per system; days (see benchmark) |
-| **7** Analysis | whole/centered protein trajectories, side-chain SASA, then the comparison WT vs. DOPA; exposure of the reactive Tyr atoms and Tyr–Tyr contacts in the WT vs. the paper | turns trajectories into numbers with mean ± SEM over replicas | `14_analysis.slurm`, `src/analyze_dopa.py`, `src/tyr_exposure.py` | → `runs/dopa/analysis/` | 1 node-share, ~1 h |
+| **6** Production | 300 ns unrestrained NPT per replica, 4 replicas per system with `mdrun -multidir`; continues from checkpoints and resubmits itself every 12 h | only unrestrained dynamics shows structural change; 4 independent replicas give error bars | `13_production.slurm` | → `rep*/md.xtc` (protein every 10 ps) | `DOPA_PROD_NODES` (4) nodes per system; days |
+| **7** Analysis | whole/centered protein trajectories, side-chain SASA, then per site the comparison WT vs. modified systems; exposure of the reactive Tyr atoms and Tyr–Tyr contacts vs. the paper | turns trajectories into numbers with mean ± SEM over replicas | `14_analysis.slurm`, `src/analyze_dopa.py`, `src/tyr_exposure.py` | → `runs/dopa/analysis/` | 1 node-share, ~1 h |
+
+**What differs per modification.** Only steps 1–4a(b); from solvation on,
+every system goes through the same scripts and analysis.
+
+| Residue | Modification | Parameters | Building | Status |
+|---------|--------------|------------|----------|--------|
+| `DAH` | L-DOPA (3-OH) | RESP, 4 conformers, Tyr-referenced; bonded terms from parm99 | new O on CE1 or CE2 (`ce1`/`ce2` variants) | pilot |
+| `TOP` | TOPA (2,4,5-OH) | RESP, 8 conformers, Tyr-referenced; bonded terms from parm99 | as DOPA + OH on the CD carbon para to the 3-OH | pilot |
+| `DTY` | 3,3'-dityrosine (half) | RESP of the bridge model, bridge torsion fitted to a QM scan, new type `CP` | rotamer search + bond growth | pilot (Y65–Y127) |
+| – | 3-nitrotyrosine | to do: RESP + ring–NO₂ torsion | new NO₂ on CE1 or CE2 | phase 2 |
+| – | isodityrosine | to do: C–O bridge terms | as dityrosine | phase 2 |
+
+System names (`src/make_system_pdb.py`): `wt`;
+`y<N>_<dah|top>_<ce1|ce2>` (`ce1`/`ce2` = ring carbon that gets the new
+3-OH, named as in the AF3 model; `dah_ce1`/`dah_ce2` are Y65);
+`x<A>_<B>` = 3,3'-dityrosine between Tyr A and Tyr B. The list of systems is
+`DOPA_SYSTEMS` in `dopa.env`.
 
 ---
 
@@ -92,52 +181,141 @@ flowchart TD
 |--------|-------|-----|
 | Structure | AF3 model (`examples/PHLP5/PHLP5_input.pdb`), same as in the paper | there is no complete experimental structure of Phl p 5a |
 | System | helical domain 1, residues 34–144, ACE/NME caps | N-terminus (1–35), linker (141–160) and C-tail (258–287) have pLDDT < 50 (likely disordered); full length is ~17 nm long, ~800k atoms in a cube vs. ~35–40k for the domain; every residue within 6 Å of the Y65 side chain lies in 61–127, and the domain touches the rest of the model at a single residue (222); NMR data indicate largely independent domains (Göbl et al. 2017) |
-| Variants | `wt`, `dah_ce1`, `dah_ce2` | DOPA is not symmetric: the new 3-OH sits on either ring edge; packed rings flip on µs–s time scales (Weininger et al. 2014), so the starting orientation would persist through 300 ns; both are simulated |
-| Force field | amber99sb-ildn + TIP3P | validated for folded proteins (Lindorff-Larsen et al. 2010, 2012); shipped with GROMACS; ff99SB-ILDN differs from ff99SB only in side-chain torsions of Ile, Leu, Asp, Asn, so the DOPA charges apply unchanged |
+| Ring orientation | both (`ce1`, `ce2`) for every hydroxylated Tyr | the new 3-OH sits on either ring edge; packed rings flip on µs–s time scales (Weininger et al. 2014), so the starting orientation may persist through 300 ns |
+| Force field | amber99sb-ildn + TIP3P | validated for folded proteins (Lindorff-Larsen et al. 2010, 2012); shipped with GROMACS; ff99SB-ILDN differs from ff99SB only in side-chain torsions of Ile, Leu, Asp, Asn, so charges derived for ff99SB apply unchanged |
+| New residues | Tyr-referenced RESP charges, parm99 bonded terms, QM-fitted terms only where parm99 has none | consistent with the amber protein charges; the WT–modified difference comes from the modification, not from the derivation (see [charges](#hydroxylation-dopa-and-topa)) |
 | Ions | neutralize + 0.15 M NaCl | physiological ionic strength; Y65 neighbours D63, K64, R66, E116, K123 |
 | Box | rhombic dodecahedron, 1.2 nm | ~71 % of the volume of a cube with the same periodic distance |
 | Thermostat / barostat | V-rescale 300 K (Bussi et al. 2007), C-rescale 1 bar (Bernetti & Bussi 2020) | correct ensembles, robust |
-| Production | 4 replicas × 300 ns per system | 300 ns covers local rearrangements; 4 × 32 cores fill one Viper node (`mdrun -multidir`), same cost as 3 replicas |
+| Production | 4 replicas × 300 ns per system, one node per replica | 300 ns covers local rearrangements; 4 nodes per system run ~2.6× faster than 1 node (benchmark 2026-10-27) |
 | Walltime | 12 h jobs, `-maxh 11.5`, automatic resubmission | cluster limit |
 
 **Ring orientation in the model.** In `dah_ce2` the new O starts 2.5 Å from
 the ring of Y127 (in `dah_ce1` the nearest atom is 4.7 Å away): that ortho
 carbon is sterically blocked in the model, so hydroxylation there is less
-likely. Energy minimization removes the clash. Compare with the atom-level
-ASA of CE1/CE2 of Y65 in Table 1 of the paper; if one side is clearly
-inaccessible, that variant can be treated as a control.
+likely. Energy minimization removes the clash. Similarly
+`make_system_pdb.py` prints the closest atom to each new oxygen: Y112-OE2
+points at E116-OE1 (ce1, 2.2 Å) or Y65-OH (ce2, 3.3 Å), i.e. H-bond partners;
+Y127-OE2 starts close to F68 (ce1, 2.5 Å) or the Y112 backbone N (ce2,
+2.8 Å). Compare with the atom-level ASA of CE1/CE2 in Table 1 of the paper;
+if one side is clearly inaccessible, that variant can be treated as a control.
 
 ---
 
-## Further hydroxylated systems
+## Status: pilot, snapshot of 28 October 2026
 
-Besides Y65 → DOPA, the same domain and the same wild-type runs serve as
-reference for
+All ten systems are in production (4 nodes each). Before the Viper
+maintenance (28.10.–02.11.2026) an interim analysis ran on the trajectories
+written so far: 110–138 ns per replica, frames every 50 ps, first 50 ns
+discarded, i.e. 60–88 ns per replica and 4 replicas per system. Production
+continues after the maintenance; the numbers below will change.
 
-| System | Modification | Why |
-|--------|--------------|-----|
-| `y112_dah_ce1`, `y112_dah_ce2` | Y112 → DOPA | hydroxylated in the paper (1.6 %); ring neighbour of Y65 in the Tyr cluster |
-| `y127_dah_ce1`, `y127_dah_ce2` | Y127 → DOPA | hydroxylated (0.7 %); ring neighbour of Y65 |
-| `y65_top_ce1`, `y65_top_ce2` | Y65 → TOPA (2,4,5-trihydroxyphenylalanine) | multi-hydroxylation was detected; TOPA = DOPA + OH on the CD carbon para to the new 3-OH |
+**Pipeline.** Parameters, building, equilibration and production ran for all
+four residue types (TYR, DAH, TOP, DTY) without manual fixes. The analysis
+ran for all systems; the interim run found three bugs in
+`analyze_dopa.py` that are fixed now (DSSP skips non-standard residues, so
+helicity is mapped by residue number; the side-chain SASA read the total
+protein column of `gmx sasa`; plot colours for more than four systems).
 
-System names: `y<N>_<dah|top>_<ce1|ce2>` (`ce1`/`ce2` = ring carbon that gets
-the new 3-OH, named as in the AF3 model); `dah_ce1`/`dah_ce2` are Y65.
-`make_system_pdb.py` prints the closest atom to each new oxygen in the start
-structure: Y112-OE2 points at E116-OE1 (ce1, 2.2 Å) or Y65-OH (ce2, 3.3 Å),
-i.e. H-bond partners; Y127-OE2 starts close to F68 (ce1, 2.5 Å) or the Y112
-backbone N (ce2, 2.8 Å); energy minimization resolves these contacts.
+**Wild type vs. the paper** (ASA in Å², MD mean over replicas; Table 1 in
+parentheses; ortho = CE1 + CE2):
 
-TOPA (residue `TOP`) is parameterized like DOPA: 8 conformers (α/β × both
-catechol H-bond patterns × both orientations of the 2-OH H), same RESP
+| Tyr | phenol O | ortho | meta | Observation |
+|-----|----------|-------|------|-------------|
+| Y65 | 8.8 (10.3) | 15.9 (16.1) | 7.2 (10.3) | CE1 always accessible, CE2 always buried |
+| Y108 | 1.7 ± 1.5 (0.0) | 6.3 (5.2) | 11.1 (19.2) | O accessible in 13 % of the frames; one replica opens after ~110 ns (O up to ~28 Å²) |
+| Y112 | 31.2 (20.7) | 37.0 (31.6) | 22.2 (17.4) | switches between two states (O ≈ 38 or ≈ 20 Å²) |
+| Y124 | 10.4 (14.3) | 16.2 (16.3) | 4.6 (4.0) | stable |
+| Y127 | 7.0 (11.3) | 1.5 (2.6) | 0.1 (0.0) | ortho accessible in 45 % of the frames, meta buried |
+
+Tyr pairs (shortest ortho···ortho C···C; fraction of frames ≤ 4.5 Å):
+Y65–Y127 4.7 Å, 36 ± 7 % (cross-link in the paper); Y65–Y124 8.0 Å, never
+below 5.1 Å (cross-link in the paper, but no approach so far); Y65–Y112
+5.6 Å, 6 %, while ortho C···OH is ≤ 4.5 Å in 79 % (NMR contact; geometry for
+isodityrosine); Y112–Y127 27 ± 20 %.
+
+**Modified systems** (site comparison, mean ± SEM, Welch p vs. WT):
+
+- Y127 → DOPA: helicity of helix 123–140 drops from 0.90 ± 0.04 to
+  0.67 ± 0.07 (`ce1`, p = 0.04) and 0.74 ± 0.03 (`ce2`, p = 0.02).
+- Y65 → TOPA `ce2`: χ1 of residue 65 mostly g+ (68 ± 22 % vs. 0 % in WT),
+  ring distance 65–112 8.8 vs. 7.3 Å (p < 0.001); in `ce1` the OH groups
+  H-bond to E116 (~30 %).
+- Y65 → DOPA `ce2`: ring turned > 90° from its start in 43 ± 26 % of the
+  frames (WT: 0.04 %), i.e. the orientation is not fixed.
+- Y65 → DOPA `ce1`: Y127 less exposed (O 2.9 vs. 7.0 Å²), Y108 more
+  (O 7.3 vs. 1.7 Å²); within the large replica spread of Y108.
+- `x65_127`: bridge stable (ring distance 4.38 Å); Y65–Y112 ring distance
+  7.8 vs. 7.3 Å (p = 0.03).
+- Core Cα RMSD 2.2–3.3 Å and RMSF (maximum in the loop at residues 86–91) do
+  not differ significantly between the systems.
+
+**Open.** Modification degrees missing from the main text (ND of Y108, Y124,
+Y127; HD of Y108; Tables S3/S4) in `data/bothen2026_tyr.tsv`; full 300 ns
+and the final analysis after the maintenance; the decisions for phase 2
+listed [above](#phase-1-pilot-running).
+
+---
+
+## Hydroxylation: DOPA and TOPA
+
+**Bonded terms** come from parm99 (Wang et al. 2000). Both hydroxylated ring
+carbons are typed `CA` (Tyr uses `C` for CZ, but the angle `C–CA–OH` is not
+defined), so `CA–OH`, `CA–CA–OH`, `CA–OH–HO`, `X–CA–OH–X` and the improper
+`CA–CA–CA–OH` cover the catechol. Nothing new is invented.
+
+**Partial charges** are derived with the recipe used for the amber protein
+charges (Bayly et al. 1993; Cornell et al. 1995; Cieplak et al. 1995). Charges
+from other libraries (e.g. Forcefield_PTM, Khoury et al. 2013) follow the
+ff03 recipe and would be inconsistent with ff99SB.
+
+- Ace-DAH-NMe, backbone α (φ, ψ = −60°, −40°) and β (−120°, 140°), φ/ψ
+  frozen, everything else relaxed; both intramolecular catechol H-bond
+  patterns (3-OH or 4-OH donating) → 4 conformers
+- HF/6-31G* gas phase (deliberately overpolarized, mimicking water, as in
+  ff94), Cartesian d functions as in Gaussian's 6-31G*; PySCF (Sun et al. 2020)
+  with geomeTRIC (Wang & Song 2016)
+- Merz–Kollman shells 1.4/1.6/1.8/2.0 × vdW radius, 1 point/Å² (the
+  Merz–Kollman/Gaussian default used for ff94)
+- two-stage RESP (a = 0.0005 / 0.001, b = 0.1); backbone N, H, C, O fixed to
+  the ff99SB values; residue and caps neutral
+- check: Tyr fitted with the same protocol (symmetric ring atoms
+  equivalenced) vs. the ff99SB Tyr charges, see `params/results/resp_report.txt`
+
+The point density matters: the restraint weights are calibrated for
+1 point/Å². A first fit at 6 points/Å² weakened the restraints and let the
+buried carbons drift (Tyr check: max |Δq| = 0.20 e, e.g. CB −0.20 instead of
+−0.02). At 1 point/Å² with the Tyr ring symmetry the Tyr refit agrees with
+ff99SB within 0.08 e except CB (−0.15 instead of −0.02): a systematic
+difference between our protocol and the original ff94 fit (whose exact
+conformers are not documented).
+
+**Tyr-referenced charges (used).** The wild type keeps the ff99SB Tyr
+charges. If DOPA got its directly fitted charges, part of the WT–DOPA
+difference (e.g. at CB) would come from the derivation, not from the extra
+OH. Therefore the force field gets
+
+    q_DAH(atom) = q_ff99SB,TYR(atom) + [q_fit,DAH(atom) − q_fit,TYR(atom)]
+
+for all atoms both residues share, the fitted charges for the new OE2/HOE2,
+and the small leftover (Tyr-fit minus ff99SB charge of the replaced HE2,
+~0.01 e) on CE2. Both Tyr and DOPA are fitted with the identical protocol, so
+its systematic error cancels. `resp_report.txt` lists direct and
+Tyr-referenced charges side by side; `resp_dopa.py fit --scheme direct` writes
+the direct fit instead.
+
+**TOPA** (residue `TOP`) is parameterized the same way: 8 conformers (α/β ×
+both catechol H-bond patterns × both orientations of the 2-OH H), same RESP
 protocol and Tyr-referenced charges (`replaced` Tyr H: HE2 and HD1).
 
-The analysis compares, per site (`DOPA_SITES`), the wild type with all systems
-modified there (`runs/dopa/analysis/site<N>/`); the site metrics refer to that
-residue and its partners in the Y65/Y112/Y124/Y127 cluster.
+DOPA and TOPA are modelled in their reduced, neutral form (catechol
+pKa ≈ 9–10, Lee et al. 2011). 3-Nitrotyrosine (phase 2) will follow the same
+recipe; its phenol is more acidic (pKa ≈ 7.2), so the protonation state has
+to be decided first.
 
 ---
 
-## Dityrosine cross-link Y65–Y127 (`x65_127`)
+## Cross-link: 3,3'-dityrosine Y65–Y127 (`x65_127`)
 
 The paper found Y65–Y124 and Y65–Y127 cross-links that persist at high
 oxidant dose and fit the NMR contacts (Maglio et al. 2002), i.e. likely
@@ -157,7 +335,8 @@ biaryls are twisted. Model compounds: the dityrosine core
   bridge so no gas-phase H-bond across the bridge enters the profile (in the
   MD the OH···O interaction comes from the normal non-bonded terms); 0–15° are
   left out because the two ortho oxygens would overlap; X–CP–CP–X (n = 2, 4)
-  fitted to E(MP2) − E(MM without this torsion) for points ≤ 50 kJ/mol
+  fitted to E(MP2) − E(MM without this torsion), MM-relaxed and
+  Boltzmann-weighted, for points ≤ 50 kJ/mol
 - CP–CP bond length and CA–CP–CP angle from the QM geometries; other CP
   terms copied from the aromatic CA terms
 - charges: RESP of the dimer (4 conformers) and p-cresol, Tyr-referenced as
@@ -173,20 +352,66 @@ goes from 3.87 Å to the equilibrium value and all angle/dihedral terms across
 the link are switched on (λ 0 → 1 over 200 ps NVT, `mdp/grow.mdp`), with
 residues within 0.6 nm of the two rings unrestrained. The setup then checks
 the bridge length after minimization and continues as for the other systems.
+Other pairs (phase 2) use the same scripts with `x<A>_<B>`; pairs whose ortho
+carbons are far apart in the model need a different start structure.
 
 ---
 
-## Reactive-atom exposure and Tyr–Tyr contacts (WT vs. paper)
+## Analysis
+
+`14_analysis.slurm` has two parts: per modified site the comparison of the
+WT with all systems modified there (`analyze_dopa.py`), and the exposure of
+the reactive Tyr atoms and the Tyr–Tyr contacts (`tyr_exposure.py`, for
+`DOPA_EXPOSURE_SYSTEMS`).
+
+Per replica the first 50 ns are discarded (`DOPA_SKIP_NS`); values are then
+averaged per replica, and systems are compared by mean ± SEM over the 4
+replicas. Results go to `runs/dopa/analysis/`:
+
+| File | Content |
+|------|---------|
+| `site<N>/summary.tsv` | per metric and system: mean ± SEM, Welch p vs. WT, per-replica values |
+| `site<N>/per_residue.tsv` | Cα RMSF and DSSP helicity per residue (NaN for the modified residue: DSSP skips it) |
+| `site<N>/contacts.tsv` | side-chain contact occupancy of residue N (≥ 5 % in any system) |
+| `site<N>/hbonds.tsv` | H-bonds of the OH groups of residue N (donor and acceptor) |
+| `site<N>/rmsf_helicity.png`, `rmsd_time.png`, `chi1_chi2.png` | overview plots |
+| `tyr_exposure/<system>/exposure.tsv` | per Tyr and atom (O, CE1, CE2, CD1, CD2, ortho, meta, RSA): Table 1, MD start, MD mean ± SEM, fraction of time > 1 Å² and > 5 Å² |
+| `tyr_exposure/<system>/tyr_vs_paper.tsv` | one row per Tyr: ND and HD (5:1) next to static and MD exposure |
+| `tyr_exposure/<system>/pairs.tsv` | Tyr–Tyr distances, fraction of frames with ortho···ortho / ortho···O ≤ 4.5 Å, cross-links and NMR contacts from the paper |
+| `tyr_exposure/<system>/frames_rep*.tsv` | per-frame values (input for `--reuse`) |
+| `tyr_exposure/<system>/exposure_bfac.pdb` | start structure; Tyr atoms with MD mean ASA as B-factor and fraction of time accessible as occupancy (for PyMOL) |
+| `tyr_exposure/<system>/*.png` | ASA time series, distributions vs. Table 1, exposure vs. ND/HD, ortho···ortho distances over time |
+
+### Effect of a modification (site comparison)
+
+| Metric | What it tells | An effect would look like |
+|--------|---------------|---------------------------|
+| core Cα RMSD | overall drift of the helical core from the starting model | larger, or a different plateau than WT |
+| Cα RMSF per residue | local flexibility | peaks near the site or in packing partners (helices around 108–127) |
+| helicity (DSSP) | secondary structure per residue; `helicity_<a>:<b>` for the helix of the site | unwinding near the site or at helix ends |
+| χ1 populations, χ2 map | side-chain conformation of the site | shifted rotamers |
+| ring-flipped fraction | how often the ring turns by > 90° from its start | the modified ring flips more/less, or settles in the other orientation |
+| ring distances to the cluster partners | packing in the tyrosine cluster (Y65/Y112/Y124/Y127) | cluster opens (larger distance) or tightens |
+| contacts, H-bonds | neighbours and H-bond partners of the OH groups | new partners for the new OH, lost or new contacts |
+| side-chain SASA | burial of the site | modified residue more exposed or more buried than Tyr |
+
+Read differences together with the replica spread: a mean shift that is
+smaller than the SEM, or carried by one replica, is not a result. With
+n = 4 the p-values are only a rough guide. Effects that appear in both ring
+orientations (`ce1` and `ce2`) are more robust than effects in one.
+
+### Reactive-atom exposure and Tyr–Tyr contacts (WT vs. paper)
 
 **Why.** The paper explains the site selectivity with the atom-level ASA of
 one relaxed structure (Table 1) and notes that transient exposure is
 underrepresented that way: Y108 is nitrated more than its static
 accessibility predicts, and Y127 is modified although buried at residue level.
 The four WT replicas show how these exposures fluctuate, and how often two
-tyrosines come close enough to couple.
+tyrosines come close enough to couple. The same analysis on modified systems
+shows whether a first modification changes the exposure of its neighbours.
 
-**What** (`src/tyr_exposure.py`, last part of `14_analysis.slurm`), for the
-tyrosines of domain 1 (Y65, Y108, Y112, Y124, Y127), every 50 ps:
+**What** (`src/tyr_exposure.py`), for the tyrosines of the system (WT: Y65,
+Y108, Y112, Y124, Y127; modified residues are left out), every 50 ps:
 
 | Quantity | Stands for |
 |----------|------------|
@@ -245,60 +470,8 @@ its neighbours.
   ·NO₂ dominate, ·OH is ~0.2 %), neighbouring charges and the protein
   environment of the radical also decide.
 - Only domain 1 is simulated (the other seven tyrosines are not in the
-  system), and the runs describe the unmodified protein. Once Y65 is
-  nitrated, its surroundings change.
-
----
-
-## DOPA parameters
-
-**Bonded terms** come from parm99 (Wang et al. 2000). Both hydroxylated ring
-carbons are typed `CA` (Tyr uses `C` for CZ, but the angle `C–CA–OH` is not
-defined), so `CA–OH`, `CA–CA–OH`, `CA–OH–HO`, `X–CA–OH–X` and the improper
-`CA–CA–CA–OH` cover the catechol. Nothing new is invented.
-
-**Partial charges** are derived with the recipe used for the amber protein
-charges (Bayly et al. 1993; Cornell et al. 1995; Cieplak et al. 1995). Charges
-from other libraries (e.g. Forcefield_PTM, Khoury et al. 2013) follow the
-ff03 recipe and would be inconsistent with ff99SB.
-
-- Ace-DAH-NMe, backbone α (φ, ψ = −60°, −40°) and β (−120°, 140°), φ/ψ
-  frozen, everything else relaxed; both intramolecular catechol H-bond
-  patterns (3-OH or 4-OH donating) → 4 conformers
-- HF/6-31G* gas phase (deliberately overpolarized, mimicking water, as in
-  ff94), Cartesian d functions as in Gaussian's 6-31G*; PySCF (Sun et al. 2020)
-  with geomeTRIC (Wang & Song 2016)
-- Merz–Kollman shells 1.4/1.6/1.8/2.0 × vdW radius, 1 point/Å² (the
-  Merz–Kollman/Gaussian default used for ff94)
-- two-stage RESP (a = 0.0005 / 0.001, b = 0.1); backbone N, H, C, O fixed to
-  the ff99SB values; residue and caps neutral
-- check: Tyr fitted with the same protocol (symmetric ring atoms
-  equivalenced) vs. the ff99SB Tyr charges, see `params/results/resp_report.txt`
-
-The point density matters: the restraint weights are calibrated for
-1 point/Å². A first fit at 6 points/Å² weakened the restraints and let the
-buried carbons drift (Tyr check: max |Δq| = 0.20 e, e.g. CB −0.20 instead of
-−0.02). At 1 point/Å² with the Tyr ring symmetry the Tyr refit agrees with
-ff99SB within 0.08 e except CB (−0.15 instead of −0.02): a systematic
-difference between our protocol and the original ff94 fit (whose exact
-conformers are not documented).
-
-**Tyr-referenced charges (used).** The wild type keeps the ff99SB Tyr
-charges. If DOPA got its directly fitted charges, part of the WT–DOPA
-difference (e.g. at CB) would come from the derivation, not from the extra
-OH. Therefore the force field gets
-
-    q_DAH(atom) = q_ff99SB,TYR(atom) + [q_fit,DAH(atom) − q_fit,TYR(atom)]
-
-for all atoms both residues share, the fitted charges for the new OE2/HOE2,
-and the small leftover (Tyr-fit minus ff99SB charge of the replaced HE2,
-~0.01 e) on CE2. Both Tyr and DOPA are fitted with the identical protocol, so
-its systematic error cancels. `resp_report.txt` lists direct and
-Tyr-referenced charges side by side; `resp_dopa.py fit --scheme direct` writes
-the direct fit instead.
-
-DOPA is modelled in its reduced, neutral catechol form (pKa ≈ 9–10,
-Lee et al. 2011).
+  system), and the WT runs describe the unmodified protein. Once Y65 is
+  nitrated, its surroundings change (question 3).
 
 ---
 
@@ -326,14 +499,20 @@ Settings for this study (domain, systems, replicas, paths) are in
 ```bash
 bash dopa/bin/dopa_submit.sh resp            # steps 1-2 (once; results get committed)
 bash dopa/bin/dopa_submit.sh resp TOP        # QM only for one residue, then fit of all
-bash dopa/bin/dopa_submit.sh setup           # step 4 for wt, dah_ce1, dah_ce2
+bash dopa/bin/dopa_submit.sh setup           # step 4 for all systems in DOPA_SYSTEMS
+bash dopa/bin/dopa_submit.sh setup x65_127   # ... or for named systems
 bash dopa/bin/dopa_submit.sh bench wt        # step 5
 bash dopa/bin/dopa_submit.sh prod            # step 6 (waits for running setup jobs)
 bash dopa/bin/dopa_submit.sh analysis        # step 7, after production
 bash dopa/bin/dopa_submit.sh all             # steps 4 + 6 chained for all systems
 ```
 
-Append `--dry-run` to see the `sbatch` calls without submitting.
+Append `--dry-run` to see the `sbatch` calls without submitting. The
+dityrosine parameters come from `sbatch dopa/slurm/15_dity_qm.slurm` (torsion
+scan, RESP conformers and fit in one job; results committed in
+`params/results/` and `ff/`).
+Before a maintenance, `DOPA_TIME_MIN` (e.g. `01:00:00`) lets Slurm shorten
+production jobs so that they still fit.
 
 ### Monitoring
 
@@ -384,8 +563,9 @@ It shows per QM conformer the optimization step and energy, after the fit the
 Tyr check (max |Δq| vs. ff99SB) and the new hydroxyl charges; per system the
 setup stage (built → topology → solvated → EM → NVT → NPT → DONE), the
 benchmark, progress bars per replica with ns/day, the remaining compute time,
-and once analysed a compact WT-vs-DOPA table. Failed stages are flagged with
-`FAIL?` / `⚠` and the last error lines of their Slurm log.
+and once analysed a compact WT-vs-modified table and the Tyr exposure vs. the
+paper. Failed stages are flagged with `FAIL?` / `⚠` and the last error lines
+of their Slurm log.
 
 Slurm logs are named after the job: `logs/<job name>.<job id>.out`, e.g.
 `logs/dopa_md_wt.12345678.out`, `logs/dopa_setup_dah_ce1.12345679.out`.
@@ -405,50 +585,14 @@ git checkout -- . && git pull && ./setup.sh /ptmp/$USER/ssi-dopa
 
 ---
 
-## Outputs and interpretation
-
-Per replica the first 50 ns are discarded (`DOPA_SKIP_NS`); values are then
-averaged per replica, and systems are compared by mean ± SEM over the 4
-replicas. Results go to `runs/dopa/analysis/`:
-
-| File | Content |
-|------|---------|
-| `summary.tsv` | per metric and system: mean ± SEM, Welch p vs. WT, per-replica values |
-| `per_residue.tsv` | Cα RMSF and DSSP helicity per residue |
-| `contacts.tsv` | side-chain contact occupancy of residue 65 (≥ 5 % in any system) |
-| `hbonds.tsv` | H-bonds of the OH groups of residue 65 (donor and acceptor) |
-| `rmsf_helicity.png`, `rmsd_time.png`, `chi1_chi2.png` | overview plots |
-| `tyr_exposure/<system>/exposure.tsv` | per Tyr and atom (O, CE1, CE2, CD1, CD2, ortho, meta, RSA): Table 1, MD start, MD mean ± SEM, fraction of time > 1 Å² and > 5 Å² |
-| `tyr_exposure/<system>/tyr_vs_paper.tsv` | one row per Tyr: ND and HD (5:1) next to static and MD exposure |
-| `tyr_exposure/<system>/pairs.tsv` | Tyr–Tyr distances, fraction of frames with ortho···ortho / ortho···O ≤ 4.5 Å, cross-links and NMR contacts from the paper |
-| `tyr_exposure/<system>/frames_rep*.tsv` | per-frame values (input for `--reuse`) |
-| `tyr_exposure/<system>/exposure_bfac.pdb` | start structure; Tyr atoms with MD mean ASA as B-factor and fraction of time accessible as occupancy (for PyMOL) |
-| `tyr_exposure/<system>/*.png` | ASA time series, distributions vs. Table 1, exposure vs. ND/HD, ortho···ortho distances over time |
-
-| Metric | What it tells | A DOPA effect would look like |
-|--------|---------------|-------------------------------|
-| core Cα RMSD | overall drift of the helical core from the starting model | larger, or a different plateau than WT |
-| Cα RMSF per residue | local flexibility | peaks near residue 65 or in packing partners (helices around 108–127) |
-| helicity (DSSP) | secondary structure per residue; `helicity_64:84` for the Y65 helix | unwinding near the site or at helix ends |
-| χ1 populations, χ2 map | side-chain conformation of residue 65 | shifted rotamers |
-| ring-flipped fraction | how often the ring turns by > 90° from its start | DOPA ring flips more/less, or settles in the other orientation |
-| ring distances 65–112/124/127 | packing in the tyrosine cluster | cluster opens (larger distance) or tightens |
-| contacts, H-bonds | neighbours and H-bond partners of the OH groups | new partners for the 3-OH, lost or new contacts |
-| side-chain SASA | burial of residue 65 | DOPA more exposed or more buried than Tyr |
-
-Read differences together with the replica spread: a mean shift that is
-smaller than the SEM, or carried by one replica, is not a result. With
-n = 4 the p-values are only a rough guide. Effects that appear in both
-`dah_ce1` and `dah_ce2` are more robust than effects in one orientation.
-
----
-
 ## Limitations
 
 - one domain only: possible transient contacts with the N-terminus or domain 2 are missing
 - AF3 starting model: inter-domain arrangement and disordered regions are uncertain
 - 300 ns covers local rearrangements, not unfolding; no ΔΔG (see Background)
-- DOPA is modelled reduced and neutral; oxidation to dopaquinone and cross-linking are not included
+- each system carries its modification from the start: the MD shows the
+  modified protein, not the reaction; radical chemistry, oxidation of DOPA
+  to dopaquinone and the cross-linking reaction itself are not included
 - fixed-charge force field: no polarization beyond what the HF/6-31G* charges imply
 - n = 4 replicas per system
 
@@ -464,24 +608,26 @@ dopa/
 │   ├── dopa_submit.sh        submits the stages
 │   └── dopa_monitor.sh       status overview (use with watch)
 ├── params/
-│   ├── resp_dopa.py          dipeptide builder, QM (PySCF), RESP fit, rtp/hdb writer
+│   ├── resp_dopa.py          dipeptide builder, QM (PySCF), RESP fit, rtp/hdb writer (DAH, TOP)
+│   ├── dity_params.py        dityrosine model compounds, torsion scan and fit, DTY charges
 │   ├── make_qm_venv.sh       Python venv with PySCF + geomeTRIC
-│   └── results/              RESP report and charges (after step 2)
+│   └── results/              RESP reports and charges, dityrosine torsion fit
 ├── ff/
-│   ├── make_ff.sh            DOPA-enabled copy of a GROMACS force field
-│   └── dah.rtp, dah.hdb      residue template (after step 2)
+│   ├── make_ff.sh            copy of a GROMACS force field with the new residues
+│   ├── dah.*, top.*, dty.*   residue templates (rtp, hdb)
+│   └── dity_*.itp/.atp       bridge atom type and bonded terms
 ├── data/
 │   ├── bothen2026_tyr.tsv    Table 1 + modification degrees of the paper
 │   └── bothen2026_pairs.tsv  cross-links and NMR contacts in domain 1
 ├── src/
-│   ├── make_system_pdb.py    domain + caps + DOPA variants
-│   ├── crosslink_topology.py dityrosine bond growth topologies
-│   ├── analyze_dopa.py       replica-based comparison
+│   ├── make_system_pdb.py    domain + caps + modifications from the system name
+│   ├── crosslink_topology.py cross-link bond growth topologies
+│   ├── analyze_dopa.py       replica-based comparison per site
 │   ├── tyr_exposure.py       reactive-atom exposure and Tyr–Tyr contacts vs. the paper
 │   ├── monitor_conv.py       convergence part of dopa_monitor.sh
 │   └── amberff.py            amber force-field terms (torsion fit)
-├── mdp/                      em, nvt, npt, md
-└── slurm/                    10_resp_qm … 14_analysis
+├── mdp/                      em, nvt, npt, md; em_grow, grow (cross-links)
+└── slurm/                    10_resp_qm … 14_analysis, 15_dity_qm
 ```
 
 ---
