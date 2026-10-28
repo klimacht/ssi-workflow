@@ -125,6 +125,41 @@ Which systems are worth running follows from the pilot (exposure and
 contacts in the WT, size of the effects) and from the modification
 degrees in Tables S3/S4 of the paper.
 
+**Start from WT frames (D-NEMD).** In the pilot every modified system
+starts from the AF3 model and is equilibrated on its own. A complementary
+protocol inserts the modification into frames of the WT production and
+follows the response in many short runs, each compared with the WT from the
+same frame (dynamical nonequilibrium MD; Ciccotti & Jacucci 1975, for
+proteins Oliveira et al. 2021). This gives:
+
+- a time-resolved response: how fast and in which order the surroundings
+  react, e.g. whether helix 123–140 unwinds within nanoseconds of DOPA127;
+- a start from the equilibrated WT ensemble, so the relaxation away from
+  the AF3 model does not mix with the effect of the modification;
+- start frames chosen by the chemistry: only frames in which the attacked
+  atom is accessible, or, for a cross-link, in which the two ortho carbons are
+  ≤ 4.5 Å apart. This fits question 3 (sequence of events) and gives
+  cross-links a natural start structure instead of a bond forced in the model;
+- a cross-check: an effect seen both here and in the independent 4 × 300 ns
+  runs is robust.
+
+What it needs:
+
+- full-system frames: production writes only protein coordinates
+  (`md.xtc`). Either re-solvate the protein of a frame and equilibrate it
+  briefly (works with the existing data), or let the WT runs write full
+  frames with velocities (e.g. every 1 ns) for the rest of their production
+  (a change to running jobs, to be decided before they resume);
+- the new atoms grown in over a few ps (λ switching with soft-core, as for
+  the dityrosine bridge in `mdp/grow.mdp`): inserted at full size into an
+  equilibrated frame they would clash with their neighbours;
+- e.g. 30 frames × 20 ns = 600 ns per system, half the cost of 4 × 300 ns;
+- optional: the reaction heat. ·OH addition is exothermic, but the excess
+  vibrational energy is expected to dissipate into protein and water within
+  picoseconds, long before structural rearrangements on the ns scale. A
+  test: heat the modified residue locally for a few ps and compare with
+  unheated runs.
+
 ---
 
 ## One pipeline for all modifications
@@ -638,6 +673,8 @@ git checkout -- . && git pull && ./setup.sh /ptmp/$USER/ssi-dopa
 - each system carries its modification from the start: the MD shows the
   modified protein, not the reaction; radical chemistry, oxidation of DOPA
   to dopaquinone and the cross-linking reaction itself are not included
+  (the response right after a modification is the planned
+  [start from WT frames](#phase-2-systematic-planned))
 - fixed-charge force field: no polarization beyond what the HF/6-31G* charges imply
 - n = 4 replicas per system
 
@@ -710,4 +747,5 @@ Simulation and analysis
 - Shrake, Rupley, *J. Mol. Biol.* 1973, 79, 351 (ASA by test points); Chothia, *J. Mol. Biol.* 1976, 105, 1 (radii); Tsai et al., *J. Mol. Biol.* 1999, 290, 253 (ProtOr radii)
 - Tsodikov, Record, Sergeev, *J. Comput. Chem.* 2002, 23, 600 (SurfaceRacer, used in the paper)
 - Gapsys et al., *Angew. Chem. Int. Ed.* 2016, 55, 7364 (ΔΔG by free-energy calculations)
+- Ciccotti, Jacucci, *Phys. Rev. Lett.* 1975, 35, 789 (dynamical nonequilibrium MD); Oliveira, Ciccotti, Haider, Mulholland, *Eur. Phys. J. B* 2021, 94, 144 (D-NEMD for proteins)
 - Hollingsworth, Dror, *Neuron* 2018, 99, 1129 (introduction to MD)
