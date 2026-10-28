@@ -156,7 +156,13 @@ def analyze_replica(rep_dir, args):
         from MDAnalysis.analysis.dssp import DSSP
         dssp_res = u.select_atoms(f"resid {args.first}:{args.last}")
         dssp = DSSP(dssp_res).run(frames=frame_ids)
-        helicity = (np.asarray(dssp.results.dssp) == "H").mean(axis=0)
+        # DSSP skips non-standard residues (DAH, TOP, DTY): map by resid, NaN for those
+        h = (np.asarray(dssp.results.dssp) == "H").mean(axis=0)
+        pos = {r: i for i, r in enumerate(ca.resids)}
+        helicity = np.full(len(ca), np.nan)
+        for r, v in zip(dssp.results.resids, h):
+            if r in pos:
+                helicity[pos[r]] = v
     except Exception as exc:                          # older MDAnalysis or missing atoms
         print(f"   DSSP skipped for {rep_dir}: {exc}")
 
@@ -166,7 +172,7 @@ def analyze_replica(rep_dir, args):
     sasa = None
     if sasa_file.exists():
         s = read_xvg(sasa_file)
-        sasa = s[s[:, 0] - s[0, 0] >= t0, 1]
+        sasa = s[s[:, 0] - s[0, 0] >= t0, -1]       # columns: time, total, -output group
 
     return {
         "resname": resname,
@@ -185,7 +191,7 @@ def analyze_replica(rep_dir, args):
             "ring_flipped_frac": float(np.mean(np.abs(dchi2) > 90.0)),
             **{f"ring_dist_{args.mut}-{p}_A": float(np.mean(v)) for p, v in cent.items()},
             **({"sasa_sidechain_nm2": float(np.mean(sasa))} if sasa is not None and len(sasa) else {}),
-            **({f"helicity_{args.helix}": float(np.mean(helicity[
+            **({f"helicity_{args.helix}": float(np.nanmean(helicity[
                 (ca.resids >= int(args.helix.split(':')[0])) & (ca.resids <= int(args.helix.split(':')[1]))]))}
                if helicity is not None else {}),
         },
@@ -304,7 +310,7 @@ def make_plots(data, args, out, resids):
     except ImportError:
         print("matplotlib not available, no plots")
         return
-    colors = dict(zip(data, ["#4a4a4a", "#d1495b", "#00798c", "#edae49"]))
+    colors = dict(zip(data, ["#4a4a4a", "#d1495b", "#00798c", "#edae49", "#66a182", "#8d5a97", "#2e4057", "#f79256"]))
 
     fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
     for system, reps in data.items():
