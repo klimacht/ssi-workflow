@@ -10,7 +10,8 @@
 # Production uses DOPA_PROD_NODES nodes per system (dopa.env); set
 # DOPA_TIME_MIN (e.g. 01:00:00) to let Slurm shorten jobs to fit before a
 # maintenance reservation.
-#   dopa_submit.sh analysis                 post-processing + comparison
+#   dopa_submit.sh analysis                 post-processing + comparison, then the figures
+#   dopa_submit.sh render                   figures and movies only (after an analysis)
 #
 # Add --dry-run as the last argument to print the sbatch calls only.
 
@@ -84,9 +85,15 @@ case "${STAGE}" in
   analysis)
     JID=$(submit analysis "${SL}/14_analysis.slurm")
     echo "analysis: ${JID}"
+    JID2=$(submit render --dependency=afterok:${JID} "${SL}/16_render.slurm")
+    echo "render:   ${JID2} (after ${JID})"
+    ;;
+  render)
+    JID=$(submit render "${SL}/16_render.slurm")
+    echo "render: ${JID}"
     ;;
   *)
-    sed -n '2,12p' "$0"
+    sed -n '2,16p' "$0"
     exit 1
     ;;
 esac

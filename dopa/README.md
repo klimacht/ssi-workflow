@@ -27,6 +27,7 @@ wild-type reference. The directory is called `dopa/` and the branch
 [Hydroxylation: DOPA and TOPA](#hydroxylation-dopa-and-topa) ·
 [Cross-link: dityrosine](#cross-link-33-dityrosine-y65y127-x65_127) ·
 [Analysis](#analysis) ·
+[Figures and movies](#figures-and-movies) ·
 [Running on Viper](#running-on-viper) ·
 [Limitations](#limitations) · [Files](#files) · [References](#references)
 
@@ -137,7 +138,8 @@ flowchart TD
   E["4 · Build + equilibrate<br/>12_setup.slurm · all systems"] --> F
   F["5 · Benchmark<br/>13_production.slurm SYSTEM bench"] --> G
   G["6 · Production 4 × 300 ns<br/>13_production.slurm · resubmits itself"] --> H
-  H["7 · Analysis<br/>14_analysis.slurm"]
+  H["7 · Analysis<br/>14_analysis.slurm"] --> I
+  I["8 · Figures and movies<br/>16_render.slurm"]
 ```
 
 | Step | What happens | Why it is needed | Script | In → out | Cost (Viper) |
@@ -155,6 +157,7 @@ flowchart TD
 | **5** Benchmark | 20 000 steps of production | real ns/day on Viper → how many 12 h jobs production needs | `13_production.slurm SYSTEM bench` | → `rep*/bench.log` | ~10 min |
 | **6** Production | 300 ns unrestrained NPT per replica, 4 replicas per system with `mdrun -multidir`; continues from checkpoints and resubmits itself every 12 h | only unrestrained dynamics shows structural change; 4 independent replicas give error bars | `13_production.slurm` | → `rep*/md.xtc` (protein every 10 ps) | `DOPA_PROD_NODES` (4) nodes per system; days |
 | **7** Analysis | whole/centered protein trajectories, side-chain SASA, then per site the comparison WT vs. modified systems; exposure of the reactive Tyr atoms and Tyr–Tyr contacts vs. the paper | turns trajectories into numbers with mean ± SEM over replicas | `14_analysis.slurm`, `src/analyze_dopa.py`, `src/tyr_exposure.py` | → `runs/dopa/analysis/` | 1 node-share, ~1 h |
+| **8** Figures and movies | representative structures, PyMOL renderings (exposure, flexibility, Tyr cluster, dityrosine), two MP4 movies of the WT | shows where the numbers of step 7 sit in the structure | `16_render.slurm`, `src/viz_prep.py`, `src/render_dopa_pymol.py`, `src/render_dopa_compose.py` | → `runs/dopa/analysis/figures/` | 1 node-share, < 30 min |
 
 **What differs per modification.** Only steps 1–4a(b); from solvation on,
 every system goes through the same scripts and analysis.
@@ -475,6 +478,47 @@ its neighbours.
 
 ---
 
+## Figures and movies
+
+Step 8 turns the analysis into pictures, in three steps like the SSI maps
+(`scripts/render_maps_pymol.py`, `render_maps_compose.py`): a structure file
+with the quantity in the B-factor, a raw PyMOL image, then panels with titles
+and colorbars.
+
+1. `viz_prep.py` (MDAnalysis) picks for every system the **representative
+   frame**: the frame closest to the mean structure (core Cα and the rings of
+   the Tyr cluster) over all replicas after `DOPA_SKIP_NS`, fitted on the core
+   Cα (37–140) to the start of WT replica 1, so that all systems share one
+   orientation. B-factor = Cα RMSF of the residue, occupancy = RMSF − RMSF(WT)
+   (from `site*/per_residue.tsv`). The exposure maps put Table 1 and the MD
+   values of `tyr_exposure/wt/exposure.tsv` on the representative WT structure.
+   For the movies it cuts a 25 ns window out of one WT replica, fits it and
+   averages the coordinates over 0.25 ns (less thermal jitter, same
+   conformational changes).
+2. `render_dopa_pymol.py` (PyMOL, `DOPA_PYMOL_ENV`) renders the raw images and
+   the movie frames.
+3. `render_dopa_compose.py` (matplotlib) adds titles, colorbars and the movie
+   side panels and encodes the MP4 with ffmpeg (`DOPA_MODULE_FFMPEG`).
+
+| File in `analysis/figures/` | Shows |
+|-----------------------------|-------|
+| `exposure_<view>.png` (front, side, back) | reactive Tyr atoms (O, CE1, CE2, CD1, CD2) as spheres: Table 1, MD mean ASA, fraction of time accessible |
+| `rmsf_wt.png` | WT putty cartoon, width and colour = Cα RMSF |
+| `drmsf.png` | every modified system, cartoon coloured by RMSF − RMSF(WT) (blue stiffer, red more flexible) |
+| `cluster.png` | Tyr cluster of each hydroxylated system (orange) over the WT (grey), polar contacts of the new O |
+| `dityrosine_<system>.png` | the cross-linked pair over the WT |
+| `movie_exposure.mp4` | 20 s, WT: the window with the largest rise of the Y108 phenol-O ASA (`--exposure-tyr`); spheres coloured by their ASA in each frame, ASA traces with a cursor |
+| `movie_pair.mp4` | 20 s, WT: Y65–Y127 (`--pair`), the window with the widest range of the shortest ortho C···C distance; dashed line orange when ≤ 4.5 Å, distance trace with a cursor |
+
+The movie windows are chosen automatically and printed in the log and in
+`viz/viz_info.json`; `viz_prep.py --exposure-window REP:T0 --pair-window REP:T0`
+sets them by hand. A movie shows one replica and is an illustration; the
+numbers come from the analysis over all replicas. A representative structure
+is one frame: differences between systems in `cluster.png` count only where
+the analysis (`site*/summary.tsv`, `contacts.tsv`, `hbonds.tsv`) shows them too.
+
+---
+
 ## Running on Viper
 
 ### One-time setup
@@ -503,7 +547,8 @@ bash dopa/bin/dopa_submit.sh setup           # step 4 for all systems in DOPA_SY
 bash dopa/bin/dopa_submit.sh setup x65_127   # ... or for named systems
 bash dopa/bin/dopa_submit.sh bench wt        # step 5
 bash dopa/bin/dopa_submit.sh prod            # step 6 (waits for running setup jobs)
-bash dopa/bin/dopa_submit.sh analysis        # step 7, after production
+bash dopa/bin/dopa_submit.sh analysis        # steps 7 + 8, after production
+bash dopa/bin/dopa_submit.sh render          # step 8 again (e.g. after changing a figure)
 bash dopa/bin/dopa_submit.sh all             # steps 4 + 6 chained for all systems
 ```
 
@@ -624,10 +669,14 @@ dopa/
 │   ├── crosslink_topology.py cross-link bond growth topologies
 │   ├── analyze_dopa.py       replica-based comparison per site
 │   ├── tyr_exposure.py       reactive-atom exposure and Tyr–Tyr contacts vs. the paper
+│   ├── viz_prep.py           representative structures and movie frames for the figures
+│   ├── render_dopa_pymol.py  raw PyMOL images and movie frames
+│   ├── render_dopa_compose.py  panels, colorbars, MP4 movies
+│   ├── viz_style.py          colour scales shared by the two render steps
 │   ├── monitor_conv.py       convergence part of dopa_monitor.sh
 │   └── amberff.py            amber force-field terms (torsion fit)
 ├── mdp/                      em, nvt, npt, md; em_grow, grow (cross-links)
-└── slurm/                    10_resp_qm … 14_analysis, 15_dity_qm
+└── slurm/                    10_resp_qm … 14_analysis, 15_dity_qm, 16_render
 ```
 
 ---
