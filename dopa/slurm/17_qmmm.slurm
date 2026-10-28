@@ -15,8 +15,8 @@
 #
 #   sbatch 17_qmmm.slurm prep                        frames + charges (MDAnalysis), DOPA_QMMM_FRAMES per replica
 #   sbatch --array=0-39 17_qmmm.slurm run sites      five Tyr of one frame per array task (PySCF from DOPA_QM_VENV)
-#   sbatch --array=0-39 --time=10:00:00 17_qmmm.slurm run triad
-#                                                    the triad of one frame per array task (3x the basis, ~3x longer)
+#   sbatch --array=0-39 --time=04:00:00 17_qmmm.slurm run triad
+#                                                    the triad of one frame per array task (~1 h on a workstation)
 #   sbatch 17_qmmm.slurm summary                     mean +- SEM per site, triad spin per ring
 # dopa_submit.sh qmmm chains them (time limits DOPA_QMMM_TIME_SITES / _TRIAD). A task that hits
 # its limit loses at most the state it was on: resubmit the same index and it continues.
@@ -27,7 +27,7 @@ MODE="${1:?Usage: 17_qmmm.slurm prep|run [sites|triad|all]|summary}"
 PART="${2:-all}"
 source __SSI_ROOT__/dopa/bin/dopa_env.sh __SSI_ROOT__
 SRC="${SSI_ROOT}/dopa/src"
-OUT="${DOPA_RUNS}/qmmm/${DOPA_QMMM_SYSTEM}"
+OUT="${DOPA_RUNS}/qmmm/${DOPA_QMMM_OUT:-${DOPA_QMMM_SYSTEM}}"     # e.g. wt_water for full-system frames
 ARGS=(--qmmm "${OUT}" --sites ${DOPA_QMMM_SITES} --triad ${DOPA_QMMM_TRIAD})
 
 module purge
@@ -36,7 +36,9 @@ module load "${MODULE_PYTHON}"
 case "${MODE}" in
   prep)
     python3 "${SRC}/qmmm_prep.py" --runs "${DOPA_RUNS}" --system "${DOPA_QMMM_SYSTEM}" --nrep "${DOPA_NREP}" \
-      --frames "${DOPA_QMMM_FRAMES}" --skip-ns "${DOPA_SKIP_NS}" --sites ${DOPA_QMMM_SITES} --out "${OUT}"
+      --frames "${DOPA_QMMM_FRAMES}" --skip-ns "${DOPA_SKIP_NS}" --sites ${DOPA_QMMM_SITES} --out "${OUT}" \
+      --top "${DOPA_QMMM_TOP:-protein_ref.gro}" --tpr "${DOPA_QMMM_TPR:-md_protein.tpr}" \
+      --xtc "${DOPA_QMMM_XTC:-md_center.xtc}"
     python3 "${SRC}/qmmm_tyr.py" check "${ARGS[@]}"
     ;;
   run)

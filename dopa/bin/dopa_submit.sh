@@ -13,6 +13,8 @@
 #   dopa_submit.sh analysis                 post-processing + comparison, then the figures
 #   dopa_submit.sh render                   figures and movies only (after an analysis)
 #   dopa_submit.sh qmmm                     QM/MM single points per Tyr on MD frames (after an analysis)
+#   dopa_submit.sh sample [SYSTEM...]       full-system frames with velocities after the production
+#                                           (default DOPA_SAMPLE_SYSTEMS)
 #
 # Add --dry-run as the last argument to print the sbatch calls only.
 
@@ -104,15 +106,22 @@ case "${STAGE}" in
     DEP="afterany:${JID2}"
     if [ -n "${DOPA_QMMM_TRIAD// /}" ]; then
       JIDT=$(submit "qmmm triad" -J dopa_qmmm_triad --dependency=afterok:${JID} --array=${ARRAY} \
-        --time="${DOPA_QMMM_TIME_TRIAD:-10:00:00}" "${SL}/17_qmmm.slurm" run triad)
+        --time="${DOPA_QMMM_TIME_TRIAD:-04:00:00}" "${SL}/17_qmmm.slurm" run triad)
       echo "qmmm triad:   ${JIDT} (${N} frames, after ${JID})"
       DEP="${DEP}:${JIDT}"
     fi
     JID3=$(submit "qmmm summary" -J dopa_qmmm_sum --dependency=${DEP} --cpus-per-task=1 --mem=4G --time=00:20:00 "${SL}/17_qmmm.slurm" summary)
     echo "qmmm summary: ${JID3} (after ${DEP#afterany:})"
     ;;
+  sample)
+    [ -z "${ARGS[0]:-}" ] && read -r -a SYSTEMS <<< "${DOPA_SAMPLE_SYSTEMS:-wt}"
+    for s in "${SYSTEMS[@]}"; do
+      JID=$(submit "sample ${s}" -J "dopa_sample_${s}" "${PROD[@]}" "${SL}/18_sample.slurm" "${s}")
+      echo "sample ${s}: ${JID}"
+    done
+    ;;
   *)
-    sed -n '2,17p' "$0"
+    sed -n '2,19p' "$0"
     exit 1
     ;;
 esac

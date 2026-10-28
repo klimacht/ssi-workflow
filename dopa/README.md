@@ -147,10 +147,11 @@ proteins Oliveira et al. 2021). This gives:
 What it needs:
 
 - full-system frames: production writes only protein coordinates
-  (`md.xtc`). Either re-solvate the protein of a frame and equilibrate it
-  briefly (works with the existing data), or let the WT runs write full
-  frames with velocities (e.g. every 1 ns) for the rest of their production
-  (a change to running jobs, to be decided before they resume);
+  (`md.xtc`). Decided (28.10.): the production stays as it is; afterwards
+  `18_sample.slurm` continues every WT replica from its final state for
+  10 ns and writes all atoms with velocities every 100 ps (100 frames per
+  replica, `rep*/sample/`; `dopa_submit.sh sample`). The same frames give
+  QM/MM with waters and ions (see [QM/MM](#qmmm-why-y65));
 - the new atoms grown in over a few ps (λ switching with soft-core, as for
   the dityrosine bridge in `mdp/grow.mdp`): inserted at full size into an
   equilibrated frame they would clash with their neighbours;
@@ -195,7 +196,7 @@ flowchart TD
 | **6** Production | 300 ns unrestrained NPT per replica, 4 replicas per system with `mdrun -multidir`; continues from checkpoints and resubmits itself every 12 h | only unrestrained dynamics shows structural change; 4 independent replicas give error bars | `13_production.slurm` | → `rep*/md.xtc` (protein every 10 ps) | `DOPA_PROD_NODES` (4) nodes per system; days |
 | **7** Analysis | whole/centered protein trajectories, side-chain SASA, then per site the comparison WT vs. modified systems; exposure of the reactive Tyr atoms and Tyr–Tyr contacts vs. the paper | turns trajectories into numbers with mean ± SEM over replicas | `14_analysis.slurm`, `src/analyze_dopa.py`, `src/tyr_exposure.py` | → `runs/dopa/analysis/` | 1 node-share, ~1 h |
 | **8** Figures and movies | representative structures, PyMOL renderings (exposure, flexibility, Tyr cluster, dityrosine), two MP4 movies of the WT | shows where the numbers of step 7 sit in the structure | `16_render.slurm`, `src/viz_prep.py`, `src/render_dopa_pymol.py`, `src/render_dopa_compose.py` | → `runs/dopa/analysis/figures/` | 1 node-share, < 30 min |
-| **9** QM/MM single points | per MD frame and Tyr: ionisation and deprotonation energy of the side chain in the field of the protein; the Y65–Y127–Y112 triad as one QM region (where the hole sits) | exposure alone does not explain why Y65 is the preferred site (see [QM/MM](#qmmm-why-y65)) | `17_qmmm.slurm`, `src/qmmm_prep.py`, `src/qmmm_tyr.py` | → `runs/dopa/qmmm/<system>/` | 2 × 40 array tasks × 32 cores: sites ~1.5 h, triad several hours each |
+| **9** QM/MM single points | per MD frame and Tyr: ionisation and deprotonation energy of the side chain in the field of the protein; the Y65–Y127–Y112 triad as one QM region (where the hole sits) | exposure alone does not explain why Y65 is the preferred site (see [QM/MM](#qmmm-why-y65)) | `17_qmmm.slurm`, `src/qmmm_prep.py`, `src/qmmm_tyr.py` | → `runs/dopa/qmmm/<system>/` | 2 × 40 array tasks × 32 cores: sites ~1.5 h, triad ~1 h each (workstation) |
 
 **What differs per modification.** Only steps 1–4a(b); from solvation on,
 every system goes through the same scripts and analysis.
@@ -603,8 +604,8 @@ Each radical starts from the orbitals of its closed-shell partner with one
 electron taken out of the HOMO (fewer SCF cycles than an atomic guess).
 The single sites and the triad are separate array tasks (`run sites`,
 `run triad`) with their own time limits (`DOPA_QMMM_TIME_SITES`,
-`DOPA_QMMM_TIME_TRIAD`); the triad has three times the basis and takes several
-times longer.
+`DOPA_QMMM_TIME_TRIAD`); the triad has three times the basis, and its radical
+cation is the most expensive single state (~20 min on 32 threads).
 
 **Frames** (`src/qmmm_prep.py`, MDAnalysis): `DOPA_QMMM_FRAMES` per replica
 (default 10, i.e. 40 for the WT), evenly spread over t ≥ `DOPA_SKIP_NS`, from
@@ -616,9 +617,21 @@ environment has no water and no ions; this overestimates the protein field
 (no dielectric screening). The `mm − gas` shifts are therefore upper bounds, and
 the comparison between sites is what counts. With full-system frames
 (`qmmm_prep.py --top/--tpr/--xtc`, whole and centred) waters and ions within
-20 Å of the rings are included automatically. Vertical energies without
-relaxation; no reaction barriers (ozone addition) — those would be the next,
-much more expensive step.
+20 Å of the rings are included automatically; after `18_sample.slurm`:
+
+```bash
+DOPA_QMMM_OUT=wt_water DOPA_QMMM_TOP=sample/sample_ref.gro DOPA_QMMM_TPR=sample/sample.tpr \
+  DOPA_QMMM_XTC=sample/sample_center.xtc bash dopa/bin/dopa_submit.sh qmmm
+```
+
+PROPKA 3.5 on the 40 protein-only frames of the snapshot (empirical
+desolvation and short-range terms, local test) ranks the acidity
+Y112 (pKa 10.2) < Y124 (10.7) < Y65 (11.4) < Y108 (12.0) < Y127 (12.7): it
+agrees with QM/MM on Y112 and on Y108/Y127, not on Y65 vs. Y124, because
+it hardly counts the field of K123/R66. Only frames with water decide this.
+
+Vertical energies without relaxation; no reaction barriers (ozone addition) —
+those would be the next, much more expensive step.
 
 **Output** in `runs/dopa/qmmm/<system>/`: `frames/` and `frames.tsv`
 (input), `results/<frame>_sites.json` and `results/<frame>_triad.json` (all
@@ -635,9 +648,15 @@ the triad, MM charge 0.000, closest charge 1.6 Å); PySCF 2.14 on a workstation
 mm − gas (+1.19, +1.14, −1.06 eV) matches the Coulomb potential of the MM
 charges at the ring centre (+1.07 eV; K123 and R66). 70 s per closed-shell
 state, 160–215 s per radical with the atomic guess, ~17 min per site with both
-environments. Run one task of each array first (after the prep job:
+environments; triad 6 min per neutral, 18–22 min per cation; 2 h 17 min for the
+whole frame. Triad (Y65 + Y127 + Y112): IE 8.52 eV with the protein, 7.67 eV
+without (the neighbouring rings stabilise the cation by ~0.4 eV compared with
+the single sites); the hole sits to 99.8 % on Y127 in both, i.e. here the
+geometry decides, not the protein field. The cation starts from the neutral
+orbitals minus the HOMO, so a hole on another ring would need its own start
+(not done). Run one task of each array first (after the prep job:
 `sbatch --array=0 dopa/slurm/17_qmmm.slurm run sites` and
-`sbatch --array=0 --time=10:00:00 dopa/slurm/17_qmmm.slurm run triad`), look
+`sbatch --array=0 --time=04:00:00 dopa/slurm/17_qmmm.slurm run triad`), look
 at the logs and set `DOPA_QMMM_TIME_*` from them before the full arrays.
 
 ---
@@ -673,6 +692,7 @@ bash dopa/bin/dopa_submit.sh prod            # step 6 (waits for running setup j
 bash dopa/bin/dopa_submit.sh analysis        # steps 7 + 8, after production
 bash dopa/bin/dopa_submit.sh render          # step 8 again (e.g. after changing a figure)
 bash dopa/bin/dopa_submit.sh qmmm            # step 9: prep -> sites array + triad array (one task per frame) -> summary
+bash dopa/bin/dopa_submit.sh sample          # full-system frames with velocities after the production (WT)
 bash dopa/bin/dopa_submit.sh all             # steps 4 + 6 chained for all systems
 ```
 
@@ -804,7 +824,7 @@ dopa/
 │   ├── monitor_conv.py       convergence part of dopa_monitor.sh
 │   └── amberff.py            amber force-field terms (torsion fit)
 ├── mdp/                      em, nvt, npt, md; em_grow, grow (cross-links)
-└── slurm/                    10_resp_qm … 14_analysis, 15_dity_qm, 16_render, 17_qmmm
+└── slurm/                    10_resp_qm … 14_analysis, 15_dity_qm, 16_render, 17_qmmm, 18_sample
 ```
 
 ---
