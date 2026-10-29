@@ -47,7 +47,9 @@ prep_rep() {   # prep_rep SYSTEM REP
 }
 
 if [ "${1:-}" = "prep" ]; then
-  gmx1() { "${GMX}" "$@"; }        # inside a job step srun has already set up MPI for this one task
+  # inside a job step Slurm's PMI allows one MPI start only, so each gmx call gets its own local
+  # mpirun (fork bootstrap instead of srun)
+  gmx1() { I_MPI_HYDRA_BOOTSTRAP=fork mpirun -n 1 -hosts "$(hostname)" "${GMX}" "$@"; }
   prep_rep "${2:?}" "${3:?}"
   exit 0
 fi

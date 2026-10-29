@@ -701,8 +701,9 @@ On Viper every 1-node job of the cluster counts against one shared CPU cap
 (QOS `n0001`, 3840 CPUs); when one large array fills it, 1-node jobs wait for
 days. Jobs with 2 or more nodes are not capped. So analysis and QM/MM run on
 `DOPA_ANALYSIS_NODES` (2) and `DOPA_QMMM_NODES` (4) whole nodes, the replicas
-or the frame × part tasks as job steps side by side (`srun --exact`); inside a
-step `gmx_mpi` runs without `mpirun`. With the value 1 they go back to one
+or the frame × part tasks as job steps side by side (`srun --exact`). Slurm's
+PMI allows only one MPI start per step, so inside a step every `gmx_mpi` call
+runs through its own `mpirun` with `I_MPI_HYDRA_BOOTSTRAP=fork`. With the value 1 they go back to one
 node (analysis serial, QM/MM as the two arrays of step 9).
 
 Append `--dry-run` to see the `sbatch` calls without submitting. The
