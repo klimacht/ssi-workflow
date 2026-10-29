@@ -621,8 +621,15 @@ the comparison between sites is what counts. With full-system frames
 
 ```bash
 DOPA_QMMM_OUT=wt_water DOPA_QMMM_TOP=sample/sample_ref.gro DOPA_QMMM_TPR=sample/sample.tpr \
-  DOPA_QMMM_XTC=sample/sample_center.xtc bash dopa/bin/dopa_submit.sh qmmm
+  DOPA_QMMM_XTC=sample/sample_center.xtc DOPA_QMMM_SKIP_NS=0 bash dopa/bin/dopa_submit.sh qmmm
 ```
+
+`DOPA_QMMM_SKIP_NS=0`: the sample frames of 2026-10-29 start at t = 0 (see
+`18_sample.slurm`). Viper sets `SBATCH_EXPORT=NONE`, so `dopa_submit.sh` hands
+these `DOPA_QMMM_*` variables to `sbatch` by name (`--export=…`); set in the
+shell alone they would not reach the job. The 20 Å sphere keeps whole ions, so its net charge is not
+zero (+2 e for the WT frames); absolute energies shift with it, comparisons
+between sites much less.
 
 PROPKA 3.5 on the 40 protein-only frames of the snapshot (empirical
 desolvation and short-range terms, local test) ranks the acidity

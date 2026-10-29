@@ -40,7 +40,7 @@ module load "${MODULE_PYTHON}"
 case "${MODE}" in
   prep)
     python3 "${SRC}/qmmm_prep.py" --runs "${DOPA_RUNS}" --system "${DOPA_QMMM_SYSTEM}" --nrep "${DOPA_NREP}" \
-      --frames "${DOPA_QMMM_FRAMES}" --skip-ns "${DOPA_SKIP_NS}" --sites ${DOPA_QMMM_SITES} --out "${OUT}" \
+      --frames "${DOPA_QMMM_FRAMES}" --skip-ns "${DOPA_QMMM_SKIP_NS:-${DOPA_SKIP_NS}}" --sites ${DOPA_QMMM_SITES} --out "${OUT}" \
       --top "${DOPA_QMMM_TOP:-protein_ref.gro}" --tpr "${DOPA_QMMM_TPR:-md_protein.tpr}" \
       --xtc "${DOPA_QMMM_XTC:-md_center.xtc}"
     python3 "${SRC}/qmmm_tyr.py" check "${ARGS[@]}"

@@ -44,6 +44,13 @@ AFTER=()
 multinode() {   # multinode N -> sbatch args for N whole nodes, one task per node holding all its CPUs
   echo "--nodes=$1 --ntasks=$1 --ntasks-per-node=1 --cpus-per-task=${DOPA_NODE_CPUS:-128} --mem=0"
 }
+# Viper sets SBATCH_EXPORT=NONE, so a job sees none of the caller's variables: the QM/MM overrides
+# that are set go to sbatch by name (only these, as with NONE).
+QX=()
+for v in DOPA_QMMM_OUT DOPA_QMMM_TOP DOPA_QMMM_TPR DOPA_QMMM_XTC DOPA_QMMM_SKIP_NS; do
+  [ -n "${!v:-}" ] && QX+=("${v}")
+done
+[ ${#QX[@]} -gt 0 ] && QX=("--export=$(IFS=,; echo "${QX[*]}")")
 [ -z "${DRY_RUN}" ] && mkdir -p "${DOPA_RUNS}" "${ROOT}/logs"
 
 submit() {   # submit DESC [sbatch args...] -> prints job id
@@ -111,24 +118,26 @@ case "${STAGE}" in
     N=$(( DOPA_NREP * DOPA_QMMM_FRAMES ))
     if [ "${DOPA_QMMM_NODES:-1}" -gt 1 ]; then
       read -r -a QN <<< "$(multinode "${DOPA_QMMM_NODES}") --time=${DOPA_QMMM_TIME_PACK:-06:00:00}"
-      JID=$(submit "qmmm pack" -J dopa_qmmm "${QN[@]}" "${AFTER[@]}" "${SL}/17_qmmm.slurm" pack)
+      JID=$(submit "qmmm pack" -J dopa_qmmm "${QN[@]}" "${AFTER[@]}" "${QX[@]}" "${SL}/17_qmmm.slurm" pack)
       echo "qmmm:         ${JID} (prep, ${N} frames x sites/triad, summary; ${DOPA_QMMM_NODES} nodes)"
       exit 0
     fi
     ARRAY="0-$(( N - 1 ))%${DOPA_QMMM_PARALLEL:-8}"
-    JID=$(submit "qmmm prep" -J dopa_qmmm_prep --cpus-per-task=4 --mem=16G --time=01:00:00 "${AFTER[@]}" "${SL}/17_qmmm.slurm" prep)
+    JID=$(submit "qmmm prep" -J dopa_qmmm_prep --cpus-per-task=4 --mem=16G --time=01:00:00 "${AFTER[@]}" "${QX[@]}" \
+      "${SL}/17_qmmm.slurm" prep)
     echo "qmmm prep:    ${JID}"
     JID2=$(submit "qmmm sites" -J dopa_qmmm_sites --dependency=afterok:${JID} --array=${ARRAY} \
-      --time="${DOPA_QMMM_TIME_SITES:-03:00:00}" "${SL}/17_qmmm.slurm" run sites)
+      --time="${DOPA_QMMM_TIME_SITES:-03:00:00}" "${QX[@]}" "${SL}/17_qmmm.slurm" run sites)
     echo "qmmm sites:   ${JID2} (${N} frames, after ${JID})"
     DEP="afterany:${JID2}"
     if [ -n "${DOPA_QMMM_TRIAD// /}" ]; then
       JIDT=$(submit "qmmm triad" -J dopa_qmmm_triad --dependency=afterok:${JID} --array=${ARRAY} \
-        --time="${DOPA_QMMM_TIME_TRIAD:-04:00:00}" "${SL}/17_qmmm.slurm" run triad)
+        --time="${DOPA_QMMM_TIME_TRIAD:-04:00:00}" "${QX[@]}" "${SL}/17_qmmm.slurm" run triad)
       echo "qmmm triad:   ${JIDT} (${N} frames, after ${JID})"
       DEP="${DEP}:${JIDT}"
     fi
-    JID3=$(submit "qmmm summary" -J dopa_qmmm_sum --dependency=${DEP} --cpus-per-task=1 --mem=4G --time=00:20:00 "${SL}/17_qmmm.slurm" summary)
+    JID3=$(submit "qmmm summary" -J dopa_qmmm_sum --dependency=${DEP} --cpus-per-task=1 --mem=4G --time=00:20:00 "${QX[@]}" \
+      "${SL}/17_qmmm.slurm" summary)
     echo "qmmm summary: ${JID3} (after ${DEP#afterany:})"
     ;;
   sample)
