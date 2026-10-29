@@ -41,7 +41,8 @@ for r in $(seq 1 "${DOPA_NREP}"); do
   ssi_require "${rep}/md.gro" "${rep}/md.cpt"       # md.gro: production finished
   mkdir -p "${rep}/sample"
   if [ ! -s "${rep}/sample/sample.tpr" ]; then
-    T0=$(head -n 1 "${rep}/md.gro" | sed -n 's/.*t= *\([0-9.]*\).*/\1/p')
+    # md.gro (confout) has no time in its title; take the last step record of md.log
+    T0=$(awk '/^ +Step +Time/ {getline; t = $2} END {print t}' "${rep}/md.log")
     sed -e "s/^nsteps .*/nsteps                  = $(( NS * 500000 ))/" \
         -e "s/^nstxout .*/nstxout                 = $(( DT * 500 ))/" \
         -e "s/^nstvout .*/nstvout                 = $(( DT * 500 ))/" \

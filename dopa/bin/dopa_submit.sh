@@ -16,6 +16,9 @@
 #   dopa_submit.sh sample [SYSTEM...]       full-system frames with velocities after the production
 #                                           (default DOPA_SAMPLE_SYSTEMS)
 #
+# Analysis and QM/MM run on DOPA_ANALYSIS_NODES / DOPA_QMMM_NODES nodes; with more than one, the
+# replicas or frames run as job steps side by side (on Viper all 1-node jobs share one CPU cap).
+# DOPA_AFTER=JOBID makes the first job of the stage wait for that job (afterok).
 # Add --dry-run as the last argument to print the sbatch calls only.
 
 set -euo pipefail
@@ -36,6 +39,11 @@ SYSTEMS=("${ARGS[@]:-}")
 SL="${ROOT}/dopa/slurm"
 PROD=(--nodes="${DOPA_PROD_NODES:-1}")
 [ -n "${DOPA_TIME_MIN:-}" ] && PROD+=(--time-min="${DOPA_TIME_MIN}")
+AFTER=()
+[ -n "${DOPA_AFTER:-}" ] && AFTER=(--dependency=afterok:${DOPA_AFTER})
+multinode() {   # multinode N -> sbatch args for N whole nodes, one task per node holding all its CPUs
+  echo "--nodes=$1 --ntasks=$1 --ntasks-per-node=1 --cpus-per-task=${DOPA_NODE_CPUS:-128} --mem=0"
+}
 [ -z "${DRY_RUN}" ] && mkdir -p "${DOPA_RUNS}" "${ROOT}/logs"
 
 submit() {   # submit DESC [sbatch args...] -> prints job id
@@ -86,8 +94,12 @@ case "${STAGE}" in
     done
     ;;
   analysis)
-    JID=$(submit analysis "${SL}/14_analysis.slurm")
-    echo "analysis: ${JID}"
+    AN=()
+    if [ "${DOPA_ANALYSIS_NODES:-1}" -gt 1 ]; then
+      read -r -a AN <<< "$(multinode "${DOPA_ANALYSIS_NODES}") --time=${DOPA_ANALYSIS_TIME:-02:00:00}"
+    fi
+    JID=$(submit analysis "${AN[@]}" "${AFTER[@]}" "${SL}/14_analysis.slurm")
+    echo "analysis: ${JID} (${DOPA_ANALYSIS_NODES:-1} node(s))"
     JID2=$(submit render --dependency=afterok:${JID} "${SL}/16_render.slurm")
     echo "render:   ${JID2} (after ${JID})"
     ;;
@@ -97,8 +109,14 @@ case "${STAGE}" in
     ;;
   qmmm)
     N=$(( DOPA_NREP * DOPA_QMMM_FRAMES ))
+    if [ "${DOPA_QMMM_NODES:-1}" -gt 1 ]; then
+      read -r -a QN <<< "$(multinode "${DOPA_QMMM_NODES}") --time=${DOPA_QMMM_TIME_PACK:-06:00:00}"
+      JID=$(submit "qmmm pack" -J dopa_qmmm "${QN[@]}" "${AFTER[@]}" "${SL}/17_qmmm.slurm" pack)
+      echo "qmmm:         ${JID} (prep, ${N} frames x sites/triad, summary; ${DOPA_QMMM_NODES} nodes)"
+      exit 0
+    fi
     ARRAY="0-$(( N - 1 ))%${DOPA_QMMM_PARALLEL:-8}"
-    JID=$(submit "qmmm prep" -J dopa_qmmm_prep --cpus-per-task=4 --mem=16G --time=01:00:00 "${SL}/17_qmmm.slurm" prep)
+    JID=$(submit "qmmm prep" -J dopa_qmmm_prep --cpus-per-task=4 --mem=16G --time=01:00:00 "${AFTER[@]}" "${SL}/17_qmmm.slurm" prep)
     echo "qmmm prep:    ${JID}"
     JID2=$(submit "qmmm sites" -J dopa_qmmm_sites --dependency=afterok:${JID} --array=${ARRAY} \
       --time="${DOPA_QMMM_TIME_SITES:-03:00:00}" "${SL}/17_qmmm.slurm" run sites)
@@ -121,7 +139,7 @@ case "${STAGE}" in
     done
     ;;
   *)
-    sed -n '2,19p' "$0"
+    sed -n '2,/^$/p' "$0"
     exit 1
     ;;
 esac
